@@ -1,0 +1,87 @@
+import functools
+import inspect
+import warnings
+from argparse import ArgumentParser
+
+try:
+    from pyrootutils import setup_root
+except ImportError:
+    setup_root = None
+
+
+def with_argparse(func):
+    return _with_argparse(func, ignore_mapping=set())
+
+
+def with_opt_argparse(*, ignore_mapping: set[str] = None, setup_cwd: bool = False):
+    def decorator(func):
+        return _with_argparse(func, ignore_mapping=ignore_mapping or set(), setup_cwd=setup_cwd)
+
+    return decorator
+
+
+def _with_argparse(func, *, ignore_mapping: set[str], setup_cwd=False):
+    @functools.wraps(func)
+    def inner(*inner_args, **inner_kwargs):
+        if setup_cwd:
+            if setup_root is not None:
+                setup_root(search_from=__file__, cwd=True, pythonpath=True)
+            else:
+                warnings.warn("Could not import setup_root from pyrootutils. Using 'setup_cwd=True' requires installing"
+                              "pyrootutils")
+
+        info = inspect.getfullargspec(func)
+        args = ArgumentParser()
+        mappings = {}
+
+        def add_argument(x, typ, default, required):
+            nonlocal mappings
+            if typ in {list[str], list[int]} and x.endswith("s") and x not in ignore_mapping:
+                mappings[x[:-1]] = x
+                x = x[:-1]
+            if typ == bool:
+                default = default if default is not None else False
+                if default:
+                    mappings["no_" + x] = x
+                    args.add_argument(f"--no_" + x, action="store_false", default=default)
+                else:
+                    args.add_argument(f"--" + x, action="store_true", default=default)
+            elif typ == list[str]:
+                args.add_argument("--" + x, type=str, default=default, required=required, nargs="+")
+            elif typ == list[int]:
+                args.add_argument("--" + x, type=int, default=default, required=required, nargs="+")
+            else:
+                args.add_argument("--" + x, type=typ, default=default, required=required)
+
+        defaults = tuple(None for _ in range(len(info.args) - len(info.defaults or [])))
+        if info.defaults:
+            defaults = defaults + info.defaults
+        else:
+            defaults = defaults + tuple(None for _ in range(len(info.args)))
+        for i, arg in enumerate(info.args or []):
+            if i < len(inner_args):
+                continue
+            assert arg in info.annotations
+            arg_type = info.annotations[arg]
+            arg_default = defaults[i]
+            arg_required = info.defaults is None or len(info.defaults) <= (len(info.args) - (i + 1))
+            add_argument(arg, arg_type, arg_default, arg_required)
+        for i, arg in enumerate(info.kwonlyargs or []):
+            if arg in inner_kwargs:
+                continue
+            assert arg in info.annotations
+            arg_type = info.annotations[arg]
+            arg_default = info.kwonlydefaults.get(arg, None) if info.kwonlydefaults is not None else None
+            arg_required = info.kwonlydefaults is None or arg not in info.kwonlydefaults
+            add_argument(arg, arg_type, arg_default, arg_required)
+        args = args.parse_args()
+        args_dict = dict()
+        for k, v in args.__dict__.items():
+            if k in mappings:
+                args_dict[mappings[k]] = v
+            else:
+                args_dict[k] = v
+
+        return func(*inner_args, **args_dict, **inner_kwargs)
+
+    return inner

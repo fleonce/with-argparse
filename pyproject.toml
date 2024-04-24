@@ -1,0 +1,35 @@
+[project]
+name = "with-argparse"
+description = "A simple but handy Python library to generate a `argparse.ArgumentParser` object from a type-annotated method "
+version = "0.0.1"
+license = {text = "Apache 2.0"}
+readme = "README.md"
+
+dependencies = []
+requires-python = ">= 3.8"
+
+authors = [
+    { name = "Moritz Hennen", email = "mail@fleance.de" }
+]
+
+keywords = [ "argparse", "type annotation", "auto" ]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: System Administrators",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Utilities",
+
+    "License :: OSI Approved :: Apache Software License",
+
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3 :: Only",
+]
+
+[project.urls]
+repository = "https://github.com/fleonce/with-argparse/"
+
+[tool.setuptools]
+packages = ["with_argparse"]
