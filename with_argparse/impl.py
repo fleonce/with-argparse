@@ -1,5 +1,6 @@
 import functools
 import inspect
+import typing
 import warnings
 from argparse import ArgumentParser
 
@@ -46,6 +47,13 @@ def _with_argparse(func, *, ignore_mapping: set[str], setup_cwd=False):
                     args.add_argument(f"--no_" + x, action="store_false", default=default)
                 else:
                     args.add_argument(f"--" + x, action="store_true", default=default)
+            elif typing.get_origin(typ) in {list}:
+                origin = typing.get_origin(typ)
+                type_args = typing.get_args(typ)
+                if origin == list:
+                    args.add_argument("--" + x, type=type_args[0], default=default, required=required, nargs="+")
+                else:
+                    raise ValueError("Unsupported origin type " + str(origin))
             elif typ == list[str]:
                 args.add_argument("--" + x, type=str, default=default, required=required, nargs="+")
             elif typ == list[int]:
