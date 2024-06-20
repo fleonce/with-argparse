@@ -37,7 +37,7 @@ def _with_argparse(func, *, ignore_mapping: set[str], setup_cwd=False):
 
         def add_argument(x, typ, default, required):
             nonlocal mappings
-            if typing.get_origin(typ) in {list} and x.endswith("s") and x not in ignore_mapping:
+            if typing.get_origin(typ) in {list, typing.Literal} and x.endswith("s") and x not in ignore_mapping:
                 mappings[x[:-1]] = x
                 x = x[:-1]
             if typ == bool:
@@ -47,11 +47,14 @@ def _with_argparse(func, *, ignore_mapping: set[str], setup_cwd=False):
                     args.add_argument(f"--no_" + x, action="store_false", default=default)
                 else:
                     args.add_argument(f"--" + x, action="store_true", default=default)
-            elif typing.get_origin(typ) in {list}:
+            elif typing.get_origin(typ) in {list, typing.Literal}:
                 origin = typing.get_origin(typ)
                 type_args = typing.get_args(typ)
                 if origin == list:
                     args.add_argument("--" + x, type=type_args[0], default=default, required=required, nargs="+")
+                elif origin == typing.Literal:
+                    choices = type_args
+                    args.add_argument("--" + x, type=str, default=default, required=required, choices=choices)
                 else:
                     raise ValueError("Unsupported origin type " + str(origin))
             elif typ == list[str]:

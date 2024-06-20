@@ -1,7 +1,7 @@
 [project]
 name = "with-argparse"
 description = "A simple but handy Python library to generate a `argparse.ArgumentParser` object from a type-annotated method "
-version = "0.0.3"
+version = "0.0.4"
 license = {text = "Apache 2.0"}
 readme = "README.md"
 
