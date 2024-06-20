@@ -14,14 +14,14 @@ def with_argparse(func):
     return _with_argparse(func, ignore_mapping=set())
 
 
-def with_opt_argparse(*, ignore_mapping: set[str] = None, setup_cwd: bool = False):
+def with_opt_argparse(*, ignore_mapping: set[str] = None, setup_cwd: bool = False, aliases: dict[str, list[str]] = None):
     def decorator(func):
-        return _with_argparse(func, ignore_mapping=ignore_mapping or set(), setup_cwd=setup_cwd)
+        return _with_argparse(func, ignore_mapping=ignore_mapping or set(), setup_cwd=setup_cwd, aliases=aliases)
 
     return decorator
 
 
-def _with_argparse(func, *, ignore_mapping: set[str], setup_cwd=False):
+def _with_argparse(func, *, ignore_mapping: set[str], setup_cwd=False, aliases: dict[str, list[str]] = None):
     @functools.wraps(func)
     def inner(*inner_args, **inner_kwargs):
         if setup_cwd:
@@ -40,29 +40,30 @@ def _with_argparse(func, *, ignore_mapping: set[str], setup_cwd=False):
             if typing.get_origin(typ) in {list, typing.Literal} and x.endswith("s") and x not in ignore_mapping:
                 mappings[x[:-1]] = x
                 x = x[:-1]
+            x_alias = aliases.get(x, [])
             if typ == bool:
                 default = default if default is not None else False
                 if default:
                     mappings["no_" + x] = x
-                    args.add_argument(f"--no_" + x, action="store_false", default=default)
+                    args.add_argument(f"--no_" + x, *x_alias, action="store_false", default=default)
                 else:
-                    args.add_argument(f"--" + x, action="store_true", default=default)
+                    args.add_argument(f"--" + x, *x_alias, action="store_true", default=default)
             elif typing.get_origin(typ) in {list, typing.Literal}:
                 origin = typing.get_origin(typ)
                 type_args = typing.get_args(typ)
                 if origin == list:
-                    args.add_argument("--" + x, type=type_args[0], default=default, required=required, nargs="+")
+                    args.add_argument("--" + x, *x_alias, type=type_args[0], default=default, required=required, nargs="+")
                 elif origin == typing.Literal:
                     choices = type_args
-                    args.add_argument("--" + x, type=str, default=default, required=required, choices=choices)
+                    args.add_argument("--" + x, *x_alias, type=str, default=default, required=required, choices=choices)
                 else:
                     raise ValueError("Unsupported origin type " + str(origin))
             elif typ == list[str]:
-                args.add_argument("--" + x, type=str, default=default, required=required, nargs="+")
+                args.add_argument("--" + x, *x_alias, type=str, default=default, required=required, nargs="+")
             elif typ == list[int]:
-                args.add_argument("--" + x, type=int, default=default, required=required, nargs="+")
+                args.add_argument("--" + x, *x_alias, type=int, default=default, required=required, nargs="+")
             else:
-                args.add_argument("--" + x, type=typ, default=default, required=required)
+                args.add_argument("--" + x, *x_alias, type=typ, default=default, required=required)
 
         defaults = tuple(None for _ in range(len(info.args) - len(info.defaults or [])))
         if info.defaults:
