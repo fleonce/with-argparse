@@ -37,7 +37,7 @@ def _with_argparse(func, *, ignore_mapping: set[str], setup_cwd=False):
 
         def add_argument(x, typ, default, required):
             nonlocal mappings
-            if typ in {list[str], list[int]} and x.endswith("s") and x not in ignore_mapping:
+            if typing.get_origin(typ) in {list} and x.endswith("s") and x not in ignore_mapping:
                 mappings[x[:-1]] = x
                 x = x[:-1]
             if typ == bool:
