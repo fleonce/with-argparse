@@ -4,6 +4,7 @@ import typing
 import warnings
 from argparse import ArgumentParser
 
+setup_root: typing.Union[typing.Callable, None]
 try:
     from pyrootutils import setup_root
 except ImportError:
@@ -22,6 +23,8 @@ def with_opt_argparse(*, ignore_mapping: set[str] = None, setup_cwd: bool = Fals
 
 
 def _with_argparse(func, *, ignore_mapping: set[str], setup_cwd=False, aliases: dict[str, list[str]] = None):
+    aliases = aliases or dict()
+
     @functools.wraps(func)
     def inner(*inner_args, **inner_kwargs):
         if setup_cwd:
