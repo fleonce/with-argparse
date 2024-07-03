@@ -11,6 +11,21 @@ except ImportError:
     setup_root = None
 
 
+config = {
+    "enabled": True
+}
+
+
+def is_enabled():
+    global config
+    return config.get("enabled", True)
+
+
+def set_config(key: str, state: bool):
+    global config
+    config[key] = state
+
+
 def with_argparse(func):
     return _with_argparse(func, ignore_mapping=set())
 
@@ -27,6 +42,9 @@ def _with_argparse(func, *, ignore_mapping: set[str], setup_cwd=False, aliases: 
 
     @functools.wraps(func)
     def inner(*inner_args, **inner_kwargs):
+        if not is_enabled():
+            return func(*inner_args, **inner_kwargs)
+
         if setup_cwd:
             if setup_root is not None:
                 setup_root(search_from=__file__, cwd=True, pythonpath=True)
