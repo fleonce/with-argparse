@@ -1,10 +1,14 @@
 import functools
 import inspect
 import typing
+from collections import defaultdict
+from typing import Any, Callable, Union
 import warnings
 from argparse import ArgumentParser
 
-setup_root: typing.Union[typing.Callable, None]
+from with_argparse.utils import glob_to_path_list, flatten
+
+setup_root: Union[Callable, None]
 try:
     from pyrootutils import setup_root
 except ImportError:
@@ -30,22 +34,41 @@ def set_config(key: str, state: bool):
     config[key] = state
 
 
-def with_argparse(func=None, *, ignore_mapping: set[str] = None, setup_cwd: bool = False, aliases: dict[str, list[str]] = None):
+def with_argparse(
+    func=None,
+    *,
+    ignore_mapping: set[str] = None,
+    setup_cwd: bool = False,
+    aliases: dict[str, list[str]] = None,
+    use_glob: set[str] = None,
+) -> Callable:
     if func is None:
-        def decorator(func):
-            return _configure_argparse(func, ignore_mapping, setup_cwd, aliases)
+        def decorator(fn):
+            return _configure_argparse(fn, ignore_mapping, setup_cwd, aliases, use_glob)
         return decorator
-    return _configure_argparse(func, ignore_mapping, setup_cwd, aliases)
+    return _configure_argparse(func, ignore_mapping, setup_cwd, aliases, use_glob)
 
 
-def with_opt_argparse(func, *, ignore_mapping: set[str] = None, setup_cwd: bool = False, aliases: dict[str, list[str]] = None):
-    warnings.warn("with_opt_argparse is being deprecated and will be removed in a future release. Please use with_argparse instead", stacklevel=2)
-    return with_argparse(func, ignore_mapping, setup_cwd, aliases)
+def with_opt_argparse(
+    *args, **kwargs
+):
+    warnings.warn(
+        "with_opt_argparse is being deprecated and will be removed in a future release. Please use with_argparse instead",
+        stacklevel=2
+    )
+    return with_argparse(*args, **kwargs)
 
 
-def _configure_argparse(func, ignore_mapping: set[str] = None, setup_cwd=False, aliases: dict[str, list[str]] = None):
+def _configure_argparse(
+    func,
+    ignore_mapping: set[str] = None,
+    setup_cwd=False,
+    aliases: dict[str, list[str]] = None,
+    use_glob: set[str] = None
+):
     aliases = aliases or dict()
     ignore_mapping = ignore_mapping or set()
+    use_glob = use_glob or set()
 
     @functools.wraps(func)
     def inner(*inner_args, **inner_kwargs):
@@ -56,16 +79,19 @@ def _configure_argparse(func, ignore_mapping: set[str] = None, setup_cwd=False, 
             if setup_root is not None:
                 setup_root(search_from=__file__, cwd=True, pythonpath=True)
             else:
-                warnings.warn("Could not import setup_root from pyrootutils. Using 'setup_cwd=True' requires installing"
-                              "pyrootutils")
+                warnings.warn(
+                    "Could not import setup_root from pyrootutils. Using 'setup_cwd=True' requires installing"
+                    "pyrootutils"
+                )
 
         info = inspect.getfullargspec(func)
         args = ArgumentParser()
         mappings = {}
-        post_parse_type_conversions = dict()
+        post_parse_type_conversions = defaultdict(list)
 
         def add_argument(x, typ, default, required):
             nonlocal mappings
+            orig_x = x
             if typing.get_origin(typ) in ORIGIN_TYPES and x.endswith("s") and x not in ignore_mapping:
                 mappings[x[:-1]] = x
                 x = x[:-1]
@@ -81,9 +107,15 @@ def _configure_argparse(func, ignore_mapping: set[str] = None, setup_cwd=False, 
                 origin = typing.get_origin(typ)
                 type_args = typing.get_args(typ)
                 if origin in {set, list}:
-                    args.add_argument("--" + x, *x_alias, type=type_args[0], default=default, required=required, nargs="+")
+                    inner_type = type_args[0]
+                    if orig_x in use_glob:
+                        inner_type = functools.partial(glob_to_path_list, map_t=inner_type)
+                        post_parse_type_conversions[orig_x].append(flatten)
+                    args.add_argument(
+                        "--" + x, *x_alias, type=inner_type, default=default, required=required, nargs="+"
+                    )
                     if origin != list:
-                        post_parse_type_conversions[x] = origin
+                        post_parse_type_conversions[orig_x].append(origin)
                 elif origin == typing.Literal:
                     choices = type_args
                     args.add_argument("--" + x, *x_alias, type=str, default=default, required=required, choices=choices)
@@ -124,8 +156,9 @@ def _configure_argparse(func, ignore_mapping: set[str] = None, setup_cwd=False, 
                 args_dict[mappings[k]] = v
             else:
                 args_dict[k] = v
-        for k, conversion_fn in post_parse_type_conversions.items():
-            args_dict[k] = conversion_fn(args_dict[k])
+        for k, conversion_fns in post_parse_type_conversions.items():
+            for conversion_fn in conversion_fns:
+                args_dict[k] = conversion_fn(args_dict[k])
 
         return func(*inner_args, **args_dict, **inner_kwargs)
 
