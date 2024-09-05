@@ -2,7 +2,7 @@ import functools
 import inspect
 import typing
 from collections import defaultdict
-from typing import Any, Callable, Union
+from typing import Any, Callable, Union, ParamSpec, TypeVar, overload
 import warnings
 from argparse import ArgumentParser
 
@@ -13,6 +13,9 @@ try:
     from pyrootutils import setup_root
 except ImportError:
     setup_root = None
+
+P = ParamSpec('P')
+T = TypeVar('T')
 
 ORIGIN_TYPES = {
     list,
@@ -34,6 +37,20 @@ def set_config(key: str, state: bool):
     config[key] = state
 
 
+@overload
+def with_argparse(func: Callable[P, T]) -> Callable[[], T]: ...
+
+
+@overload
+def with_argparse(
+    *,
+    ignore_mapping: set[str] = None,
+    setup_cwd: bool = False,
+    aliases: dict[str, list[str]] = None,
+    use_glob: set[str] = None
+) -> Callable[[Callable[P, T]], Callable[[], T]]: ...
+
+
 def with_argparse(
     func=None,
     *,
@@ -41,7 +58,7 @@ def with_argparse(
     setup_cwd: bool = False,
     aliases: dict[str, list[str]] = None,
     use_glob: set[str] = None,
-) -> Callable:
+):
     if func is None:
         def decorator(fn):
             return _configure_argparse(fn, ignore_mapping, setup_cwd, aliases, use_glob)
