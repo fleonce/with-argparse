@@ -44,6 +44,7 @@ def with_argparse(func: Callable[P, T]) -> Callable[[], T]: ...
 @overload
 def with_argparse(
     *,
+    ignore_keys: set[str] = None,
     ignore_mapping: set[str] = None,
     setup_cwd: bool = False,
     aliases: dict[str, list[str]] = None,
@@ -54,6 +55,7 @@ def with_argparse(
 def with_argparse(
     func=None,
     *,
+    ignore_keys: set[str] = None,
     ignore_mapping: set[str] = None,
     setup_cwd: bool = False,
     aliases: dict[str, list[str]] = None,
@@ -61,9 +63,9 @@ def with_argparse(
 ):
     if func is None:
         def decorator(fn):
-            return _configure_argparse(fn, ignore_mapping, setup_cwd, aliases, use_glob)
+            return _configure_argparse(fn, ignore_keys, ignore_mapping, setup_cwd, aliases, use_glob)
         return decorator
-    return _configure_argparse(func, ignore_mapping, setup_cwd, aliases, use_glob)
+    return _configure_argparse(func, ignore_keys, ignore_mapping, setup_cwd, aliases, use_glob)
 
 
 def with_opt_argparse(
@@ -78,12 +80,14 @@ def with_opt_argparse(
 
 def _configure_argparse(
     func,
+    ignore_keys: set[str] = None,
     ignore_mapping: set[str] = None,
     setup_cwd=False,
     aliases: dict[str, list[str]] = None,
     use_glob: set[str] = None
 ):
     aliases = aliases or dict()
+    ignore_keys = ignore_keys or set()
     ignore_mapping = ignore_mapping or set()
     use_glob = use_glob or set()
 
@@ -157,6 +161,8 @@ def _configure_argparse(
             arg_type = info.annotations[arg]
             arg_default = defaults[i]
             arg_required = info.defaults is None or len(info.defaults) <= (len(info.args) - (i + 1))
+            if arg in ignore_keys:
+                continue
             add_argument(arg, arg_type, arg_default, arg_required)
         for i, arg in enumerate(info.kwonlyargs or []):
             if arg in inner_kwargs:
@@ -165,6 +171,8 @@ def _configure_argparse(
             arg_type = info.annotations[arg]
             arg_default = info.kwonlydefaults.get(arg, None) if info.kwonlydefaults is not None else None
             arg_required = info.kwonlydefaults is None or arg not in info.kwonlydefaults
+            if arg in ignore_keys:
+                continue
             add_argument(arg, arg_type, arg_default, arg_required)
         args = args.parse_args()
         args_dict = dict()
