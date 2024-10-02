@@ -1,5 +1,6 @@
 import functools
 import inspect
+import sys
 import typing
 import warnings
 from argparse import ArgumentParser
@@ -10,10 +11,23 @@ try:
 except ImportError:
     setup_root = None
 
+LITERAL_TYPES = {
+    typing.Literal,
+}
+if sys.version_info >= (3, 11, 0):
+    LITERAL_TYPES |= {
+        typing.LiteralString,
+    }
+
+SET_TYPES = {set, typing.Set}
+LIST_TYPES = {list, typing.List}
+SEQUENCE_TYPES = SET_TYPES | LIST_TYPES
+
 ORIGIN_TYPES = {
     list,
     set,
-    typing.Literal
+    typing.Union,
+    typing.Optional,
 }
 config = {
     "enabled": True
@@ -80,19 +94,31 @@ def _configure_argparse(func, ignore_mapping: set[str] = None, setup_cwd=False, 
             elif typing.get_origin(typ) in ORIGIN_TYPES:
                 origin = typing.get_origin(typ)
                 type_args = typing.get_args(typ)
-                if origin in {set, list}:
+                if origin in SEQUENCE_TYPES:
                     args.add_argument("--" + x, *x_alias, type=type_args[0], default=default, required=required, nargs="+")
                     if origin != list:
-                        post_parse_type_conversions[x] = origin
-                elif origin == typing.Literal:
+                        if origin in SET_TYPES:
+                            post_parse_type_conversions[x] = set
+                        elif origin in LIST_TYPES:
+                            post_parse_type_conversions[x] = list
+                        else:
+                            raise NotImplementedError(origin)
+                elif origin in {typing.Literal}:
                     choices = type_args
                     args.add_argument("--" + x, *x_alias, type=str, default=default, required=required, choices=choices)
+                elif origin is typing.Union:
+                    if len(type_args) == 2 and type(None) in type_args:
+                        # typing.Optional[int]
+                        # or typing.Union[None, int]
+                        # or int | None
+                        # etc.
+                        args.add_argument()
+                        raise ValueError
+                    raise NotImplementedError
                 else:
-                    raise ValueError("Unsupported origin type " + str(origin))
-            elif typ == list[str]:
-                args.add_argument("--" + x, *x_alias, type=str, default=default, required=required, nargs="+")
-            elif typ == list[int]:
-                args.add_argument("--" + x, *x_alias, type=int, default=default, required=required, nargs="+")
+                    raise ValueError(
+                        "Unsupported origin type " + str(origin) + " for type " + str(typ) + " "
+                        "with inner types " + str(type_args))
             else:
                 args.add_argument("--" + x, *x_alias, type=typ, default=default, required=required)
 
