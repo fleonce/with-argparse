@@ -14,6 +14,15 @@ class GlobTestCase(unittest.TestCase):
             out = wrapper()
             self.assertGreater(len(out), 1)
 
+    def test_glob_set(self):
+        @with_argparse(use_glob={"paths"})
+        def wrapper(paths: set[Path]):
+            return paths
+        with sys_args(path="*"):
+            out = wrapper()
+            self.assertIsInstance(out, set)
+            self.assertGreater(len(out), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
