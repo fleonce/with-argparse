@@ -7,6 +7,7 @@ from typing import Any, Callable, Union, ParamSpec, TypeVar, overload
 import warnings
 from argparse import ArgumentParser
 
+from with_argparse.configure_argparse import WithArgparse
 from with_argparse.utils import glob_to_path_list, flatten
 
 setup_root: Union[Callable, None]
@@ -115,89 +116,12 @@ def _configure_argparse(
                     "pyrootutils"
                 )
 
-        info = inspect.getfullargspec(func)
-        args = ArgumentParser()
-        mappings = {}
-        post_parse_type_conversions = defaultdict(list)
-
-        def add_argument(x, typ, default, required):
-            nonlocal mappings
-            orig_x = x
-            if typing.get_origin(typ) in ORIGIN_TYPES and x.endswith("s") and x not in ignore_mapping:
-                mappings[x[:-1]] = x
-                x = x[:-1]
-            x_alias = aliases.get(x, [])
-            if typ == bool:
-                default = default if default is not None else False
-                if default:
-                    mappings["no_" + x] = x
-                    args.add_argument(f"--no_" + x, *x_alias, action="store_false", default=default)
-                else:
-                    args.add_argument(f"--" + x, *x_alias, action="store_true", default=default)
-            elif typing.get_origin(typ) in ORIGIN_TYPES:
-                origin = typing.get_origin(typ)
-                type_args = typing.get_args(typ)
-                if origin in {set, list}:
-                    inner_type = type_args[0]
-                    if orig_x in use_glob:
-                        inner_type = functools.partial(glob_to_path_list, map_t=inner_type)
-                        post_parse_type_conversions[orig_x].append(flatten)
-                    args.add_argument(
-                        "--" + x, *x_alias, type=inner_type, default=default, required=required, nargs="+"
-                    )
-                    if origin != list:
-                        post_parse_type_conversions[orig_x].append(origin)
-                elif origin in {typing.Literal}:
-                    choices = type_args
-                    args.add_argument("--" + x, *x_alias, type=str, default=default, required=required, choices=choices)
-                elif origin is typing.Union:
-                    if len(type_args) == 2 and type(None) in type_args:
-                        # typing.Optional[int]
-                        # or typing.Union[None, int]
-                        # or int | None
-                        # etc.
-                        args.add_argument()
-                        raise ValueError
-                    raise NotImplementedError
-                else:
-                    raise ValueError(
-                        "Unsupported origin type " + str(origin) + " for type " + str(typ) + " "
-                        "with inner types " + str(type_args))
-            else:
-                args.add_argument("--" + x, *x_alias, type=typ, default=default, required=required)
-
-        defaults = tuple(None for _ in range(len(info.args) - len(info.defaults or [])))
-        if info.defaults:
-            defaults = defaults + info.defaults
-        else:
-            defaults = defaults + tuple(None for _ in range(len(info.args)))
-        for i, arg in enumerate(info.args or []):
-            if i < len(inner_args):
-                continue
-            assert arg in info.annotations
-            arg_type = info.annotations[arg]
-            arg_default = defaults[i]
-            arg_required = info.defaults is None or len(info.defaults) <= (len(info.args) - (i + 1))
-            add_argument(arg, arg_type, arg_default, arg_required)
-        for i, arg in enumerate(info.kwonlyargs or []):
-            if arg in inner_kwargs:
-                continue
-            assert arg in info.annotations
-            arg_type = info.annotations[arg]
-            arg_default = info.kwonlydefaults.get(arg, None) if info.kwonlydefaults is not None else None
-            arg_required = info.kwonlydefaults is None or arg not in info.kwonlydefaults
-            add_argument(arg, arg_type, arg_default, arg_required)
-        args = args.parse_args()
-        args_dict = dict()
-        for k, v in args.__dict__.items():
-            if k in mappings:
-                args_dict[mappings[k]] = v
-            else:
-                args_dict[k] = v
-        for k, conversion_fns in post_parse_type_conversions.items():
-            for conversion_fn in conversion_fns:
-                args_dict[k] = conversion_fn(args_dict[k])
-
-        return func(*inner_args, **args_dict, **inner_kwargs)
+        parser = WithArgparse(
+            func,
+            aliases=aliases,
+            ignore_rename=ignore_mapping,
+            allow_glob=use_glob,
+        )
+        return parser.call(inner_args, inner_kwargs)
 
     return inner

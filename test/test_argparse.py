@@ -27,7 +27,9 @@ class ArgparseTestCase(unittest.TestCase):
         @with_argparse
         def wrapper(a: Set[int] = None):
             return a
-        wrapper()
+
+        with sys_args():
+            wrapper()
 
     def test_empty_argparse_direct_decorator(self):
         @with_argparse
