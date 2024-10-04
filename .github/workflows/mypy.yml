@@ -30,4 +30,4 @@ jobs:
         python -m pip install flake8 mypy
     - name: Test with mypy
       run: |
-        python -m mypy with_argparse --ignore-missing-imports
+        python -m mypy with_argparse --ignore-missing-imports --python-version ${{ matrix.python-version }}

@@ -19,7 +19,7 @@ T = TypeVar('T')
 LITERAL_TYPES: set[type | _SpecialForm] = {
     typing.Literal,
 }
-if sys.version_info >= (3, 11, 0):
+if sys.version_info[:2] >= (3, 11):
     LITERAL_TYPES |= {
         typing.LiteralString,
     }
