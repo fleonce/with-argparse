@@ -1,7 +1,7 @@
 import functools
 import sys
 import typing
-from typing import Callable, Union, ParamSpec, TypeVar, overload, Optional, Mapping, _SpecialForm
+from typing import Callable, Union, ParamSpec, TypeVar, overload, Optional, Mapping, _SpecialForm, Any
 import warnings
 
 from with_argparse.configure_argparse import WithArgparse
@@ -59,7 +59,8 @@ def with_argparse(
     ignore_mapping: Optional[set[str]] = None,
     setup_cwd: Optional[bool] = None,
     aliases: Optional[Mapping[str, list[str]]] = None,
-    use_glob: Optional[set[str]] = None
+    use_glob: Optional[set[str]] = None,
+    use_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
 ) -> Callable[[Callable[P, T]], Callable[[], T]]: ...
 
 
@@ -70,11 +71,13 @@ def with_argparse(
     setup_cwd: Optional[bool] = None,
     aliases: Optional[Mapping[str, list[str]]] = None,
     use_glob: Optional[set[str]] = None,
+    use_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
 ):
     aliases = aliases or dict()
     ignore_mapping = ignore_mapping or set()
     use_glob = use_glob or set()
     setup_cwd = setup_cwd or False
+    use_custom = use_custom or dict()
 
     def wrapper(fn):
         @functools.wraps(fn)
@@ -96,6 +99,7 @@ def with_argparse(
                 aliases=aliases,
                 ignore_rename=ignore_mapping,
                 allow_glob=use_glob,
+                allow_custom=use_custom,
             )
             return parser.call(inner_args, inner_kwargs)
         return inner
