@@ -44,6 +44,8 @@ class WithArgparse:
     argument_aliases: MutableMapping[str, Sequence[str]]
     post_parse_type_conversions: MutableMapping[str, list[Callable[[Any], Any]]]
     allow_glob: set[str]
+    allow_custom: Mapping[str, Callable[[Any], Any]]
+    allow_dispatch_custom: bool
 
     def __init__(
         self,
@@ -51,6 +53,7 @@ class WithArgparse:
         aliases: Optional[Mapping[str, Sequence[str]]] = None,
         ignore_rename: Optional[set[str]] = None,
         allow_glob: Optional[set[str]] = None,
+        allow_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
     ):
         super().__init__()
         self.ignore_rename_sequences = ignore_rename or set()
@@ -58,11 +61,16 @@ class WithArgparse:
         self.argument_aliases = dict(aliases or dict())
         self.post_parse_type_conversions = dict()
         self.allow_glob = allow_glob or set()
+        self.allow_custom = allow_custom or dict()
+        self.allow_dispatch_custom = True
 
         self.func = func
         self.argparse = ArgumentParser()
 
     def _register_mapping(self): ...
+
+    def _no_dispatch_custom(self):
+        return NoDispatchCustom(self)
 
     def _register_post_parse_type_conversion(self, key: str, func: Callable[[Any], Any]):
         if func is None:
@@ -195,7 +203,45 @@ class WithArgparse:
         arg_required: bool
     ) -> _Argument:
         logger.debug(f"Dispatch: {arg_name} ({arg_type}) default={arg_default}, required={arg_required}")
-        pass
+
+        if (
+            self.allow_dispatch_custom
+            and arg_name in self.allow_custom
+        ):
+            custom_func = self.allow_custom[arg_name]
+            sign = inspect.signature(custom_func)
+
+            if len(sign.parameters) != 1:
+                param_names = ''.join(param.annotation for name, param in sign.parameters.items())
+                raise ValueError(
+                    f"Argument {arg_name} received a custom parse function, however it accepts zero arguments, "
+                    f"got '{custom_func}' with signature '[{param_names}] -> {sign.return_annotation}'"
+                )
+
+            only_param = first(sign.parameters.values())
+            if only_param.annotation is only_param.empty:
+                warnings.warn(
+                    f"Argument {arg_name} received a custom parse function, however it has no type annotation. "
+                    f"As a consequence, we cannot infer which type must be input, assuming 'str'"
+                )
+                custom_type = str
+            else:
+                custom_type = only_param.annotation
+
+            with self._no_dispatch_custom():
+                logger.debug(
+                    f"A custom function for {arg_name} was configured. Dispatching with input argument type "
+                    f"{custom_type} as is input to {custom_func.__name__}")
+                inner = self._dispatch_argparse_key_type(
+                    arg_name,
+                    custom_type,
+                    arg_default,
+                    arg_required
+                )
+
+            self._register_post_parse_type_conversion(arg_name, custom_func)
+            return inner
+
         origin_arg_type = get_origin(arg_type)
         if (
             origin_arg_type
@@ -334,3 +380,15 @@ class WithArgparse:
                 False,
                 None,
             )
+
+class NoDispatchCustom:
+    def __init__(self, wa: WithArgparse):
+        self.wa = wa
+        self.orig = False
+
+    def __enter__(self):
+        self.orig = self.wa.allow_dispatch_custom
+        self.wa.allow_dispatch_custom = False
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.wa.allow_dispatch_custom = self.orig

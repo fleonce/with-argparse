@@ -15,7 +15,7 @@ class sys_args:
             if isinstance(value, bool) and not value:
                 continue
             self.args.append("--" + key)
-            if isinstance(value, Iterable):
+            if isinstance(value, Iterable) and not isinstance(value, str):
                 for elem in value:
                     self.args.append(str(elem))
             else:
