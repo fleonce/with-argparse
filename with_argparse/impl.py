@@ -1,25 +1,22 @@
 import functools
-import inspect
 import sys
 import typing
-from collections import defaultdict
-from typing import Any, Callable, Union, ParamSpec, TypeVar, overload
+from typing import Callable, Union, ParamSpec, TypeVar, overload, Optional, Mapping, _SpecialForm
 import warnings
-from argparse import ArgumentParser
 
 from with_argparse.configure_argparse import WithArgparse
-from with_argparse.utils import glob_to_path_list, flatten
 
-setup_root: Union[Callable, None]
 try:
-    from pyrootutils import setup_root
+    from pyrootutils import setup_root as setup_root_fn
+
+    setup_root: Union[Callable, None] = setup_root_fn
 except ImportError:
-    setup_root = None
+    setup_root_fn = None
 
 P = ParamSpec('P')
 T = TypeVar('T')
 
-LITERAL_TYPES = {
+LITERAL_TYPES: set[type | _SpecialForm] = {
     typing.Literal,
 }
 if sys.version_info >= (3, 11, 0):
@@ -59,58 +56,51 @@ def with_argparse(func: Callable[P, T]) -> Callable[[], T]: ...
 @overload
 def with_argparse(
     *,
-    ignore_mapping: set[str] = None,
-    setup_cwd: bool = False,
-    aliases: dict[str, list[str]] = None,
-    use_glob: set[str] = None
+    ignore_mapping: Optional[set[str]] = None,
+    setup_cwd: Optional[bool] = None,
+    aliases: Optional[Mapping[str, list[str]]] = None,
+    use_glob: Optional[set[str]] = None
 ) -> Callable[[Callable[P, T]], Callable[[], T]]: ...
 
 
 def with_argparse(
     func=None,
     *,
-    ignore_mapping: set[str] = None,
-    setup_cwd: bool = False,
-    aliases: dict[str, list[str]] = None,
-    use_glob: set[str] = None,
-):
-    if func is None:
-        def decorator(fn):
-            return _configure_argparse(fn, ignore_mapping, setup_cwd, aliases, use_glob)
-        return decorator
-    return _configure_argparse(func, ignore_mapping, setup_cwd, aliases, use_glob)
-
-def _configure_argparse(
-    func,
-    ignore_mapping: set[str] = None,
-    setup_cwd=False,
-    aliases: dict[str, list[str]] = None,
-    use_glob: set[str] = None
+    ignore_mapping: Optional[set[str]] = None,
+    setup_cwd: Optional[bool] = None,
+    aliases: Optional[Mapping[str, list[str]]] = None,
+    use_glob: Optional[set[str]] = None,
 ):
     aliases = aliases or dict()
     ignore_mapping = ignore_mapping or set()
     use_glob = use_glob or set()
+    setup_cwd = setup_cwd or False
 
-    @functools.wraps(func)
-    def inner(*inner_args, **inner_kwargs):
-        if not is_enabled():
-            return func(*inner_args, **inner_kwargs)
+    def wrapper(fn):
+        @functools.wraps(fn)
+        def inner(*inner_args, **inner_kwargs):
+            if not is_enabled():
+                return func(*inner_args, **inner_kwargs)
 
-        if setup_cwd:
-            if setup_root is not None:
-                setup_root(search_from=__file__, cwd=True, pythonpath=True)
-            else:
-                warnings.warn(
-                    "Could not import setup_root from pyrootutils. Using 'setup_cwd=True' requires installing"
-                    "pyrootutils"
-                )
+            if setup_cwd:
+                if setup_root is not None:
+                    setup_root(search_from=__file__, cwd=True, pythonpath=True)
+                else:
+                    warnings.warn(
+                        "Could not import setup_root from pyrootutils. Using 'setup_cwd=True' requires installing"
+                        "pyrootutils"
+                    )
 
-        parser = WithArgparse(
-            func,
-            aliases=aliases,
-            ignore_rename=ignore_mapping,
-            allow_glob=use_glob,
-        )
-        return parser.call(inner_args, inner_kwargs)
+            parser = WithArgparse(
+                func,
+                aliases=aliases,
+                ignore_rename=ignore_mapping,
+                allow_glob=use_glob,
+            )
+            return parser.call(inner_args, inner_kwargs)
+        return inner
 
-    return inner
+    if func is None:
+        return wrapper
+
+    return wrapper(func)

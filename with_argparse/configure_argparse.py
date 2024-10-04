@@ -43,7 +43,7 @@ class WithArgparse:
     argument_mapping: MutableMapping[str, str]
     argument_aliases: MutableMapping[str, Sequence[str]]
     post_parse_type_conversions: MutableMapping[str, list[Callable[[Any], Any]]]
-    allow_glob: Optional[set[str]] = None
+    allow_glob: set[str]
 
     def __init__(
         self,
@@ -301,10 +301,10 @@ class WithArgparse:
                 return inner
             raise NotImplementedError(arg_type)
         elif origin_arg_type:
-            inner_args = get_args(arg_type)
+            inner_arg_types = get_args(arg_type)
             raise ValueError(
                 "Unsupported origin type " + str(origin_arg_type) + " for type " + str(arg_type) + " "
-                "with inner types " + str(inner_args)
+                "with inner types " + str(inner_arg_types)
             )
         else:
             orig_arg_name = self._resolve_orig_arg_name(arg_name)
