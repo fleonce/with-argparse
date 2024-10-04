@@ -80,7 +80,7 @@ def with_argparse(
         @functools.wraps(fn)
         def inner(*inner_args, **inner_kwargs):
             if not is_enabled():
-                return func(*inner_args, **inner_kwargs)
+                return fn(*inner_args, **inner_kwargs)
 
             if setup_cwd:
                 if setup_root is not None:
@@ -92,7 +92,7 @@ def with_argparse(
                     )
 
             parser = WithArgparse(
-                func,
+                fn,
                 aliases=aliases,
                 ignore_rename=ignore_mapping,
                 allow_glob=use_glob,
