@@ -80,17 +80,6 @@ def with_argparse(
         return decorator
     return _configure_argparse(func, ignore_mapping, setup_cwd, aliases, use_glob)
 
-
-def with_opt_argparse(
-    *args, **kwargs
-):
-    warnings.warn(
-        "with_opt_argparse is being deprecated and will be removed in a future release. Please use with_argparse instead",
-        stacklevel=2
-    )
-    return with_argparse(*args, **kwargs)
-
-
 def _configure_argparse(
     func,
     ignore_mapping: set[str] = None,
