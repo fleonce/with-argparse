@@ -1,6 +1,7 @@
 import logging
 import unittest
 from pathlib import Path
+from typing import Optional
 
 from tools import sys_args
 from with_argparse import with_argparse
@@ -46,3 +47,13 @@ class CustomParseTest(unittest.TestCase):
 
         with sys_args(a="abc"):
             self.assertEqual(wrapper().value(), "abc")
+
+    def test_parse_kwarg(self):
+        def wow_fn(inp: Optional[str]) -> int:
+            return 42
+
+        @with_argparse(value=wow_fn)
+        def wrapper(value: int):
+            return value
+
+        self.assertEqual(wrapper(), 42)
