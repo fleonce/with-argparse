@@ -56,4 +56,5 @@ class CustomParseTest(unittest.TestCase):
         def wrapper(value: int):
             return value
 
-        self.assertEqual(wrapper(), 42)
+        with sys_args(value="any"):
+            self.assertEqual(wrapper(), 42)
