@@ -50,10 +50,6 @@ def set_config(key: str, state: bool):
 
 
 @overload
-def with_argparse(func: Callable[P, T]) -> Callable[[], T]: ...
-
-
-@overload
 def with_argparse(
     *,
     ignore_mapping: Optional[set[str]] = None,
@@ -61,8 +57,11 @@ def with_argparse(
     aliases: Optional[Mapping[str, list[str]]] = None,
     use_glob: Optional[set[str]] = None,
     use_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
+    **kwargs: Callable[[Any], Any]
 ) -> Callable[[Callable[P, T]], Callable[[], T]]: ...
 
+@overload
+def with_argparse(func: Callable[P, T]) -> Callable[[], T]: ...
 
 def with_argparse(
     func=None,
@@ -72,12 +71,14 @@ def with_argparse(
     aliases: Optional[Mapping[str, list[str]]] = None,
     use_glob: Optional[set[str]] = None,
     use_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
+    **kwargs: Callable[[Any], Any]
 ):
     aliases = aliases or dict()
     ignore_mapping = ignore_mapping or set()
     use_glob = use_glob or set()
     setup_cwd = setup_cwd or False
     use_custom = use_custom or dict()
+    use_custom = dict(use_custom, **kwargs)
 
     def wrapper(fn):
         @functools.wraps(fn)
