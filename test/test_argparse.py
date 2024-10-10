@@ -1,6 +1,9 @@
 import itertools
 import sys
 import unittest
+from collections.abc import Iterable
+from functools import wraps
+from typing import Any, Optional, List, Set
 from with_argparse import with_argparse
 from tools import sys_args, foreach
 
@@ -13,6 +16,20 @@ class ArgparseTestCase(unittest.TestCase):
             pass
 
         wrapper()
+
+    def test_argparse_with_optional(self):
+        @with_argparse
+        def wrapper(a: Optional[int] = None):
+            return a
+        wrapper()
+
+    def test_list_argparse(self):
+        @with_argparse
+        def wrapper(a: Set[int] = None):
+            return a
+
+        with sys_args():
+            wrapper()
 
     def test_empty_argparse_direct_decorator(self):
         @with_argparse
