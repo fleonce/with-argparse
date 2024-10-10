@@ -228,6 +228,17 @@ class WithArgparse:
             else:
                 custom_type = only_param.annotation
 
+            if sign.return_annotation is sign.empty:
+                warnings.warn(
+                    f"Argument {arg_name} received a custom parse function, however it has no type annotation "
+                    f"for its return type. Assuming return type is {arg_type}."
+                )
+            elif ...:
+                # check if output value is subset of target type
+                raise ValueError(
+                    f"Argument {arg_name} received a custom parse function, however"
+                )
+
             with self._no_dispatch_custom():
                 logger.debug(
                     f"A custom function for {arg_name} was configured. Dispatching with input argument type "
