@@ -52,6 +52,7 @@ def set_config(key: str, state: bool):
 @overload
 def with_argparse(
     *,
+    ignore_keys: Optional[set[str]] = None,
     ignore_mapping: Optional[set[str]] = None,
     setup_cwd: Optional[bool] = None,
     aliases: Optional[Mapping[str, list[str]]] = None,
@@ -61,11 +62,12 @@ def with_argparse(
 ) -> Callable[[Callable[P, T]], Callable[[], T]]: ...
 
 @overload
-def with_argparse(func: Callable[P, T]) -> Callable[[], T]: ...
+def with_argparse(func: Callable[P, T], /) -> Callable[[], T]: ...
 
 def with_argparse(
     func=None,
     *,
+    ignore_keys: Optional[set[str]] = None,
     ignore_mapping: Optional[set[str]] = None,
     setup_cwd: Optional[bool] = None,
     aliases: Optional[Mapping[str, list[str]]] = None,
@@ -74,6 +76,7 @@ def with_argparse(
     **kwargs: Callable[[Any], Any]
 ):
     aliases = aliases or dict()
+    ignore_keys = ignore_keys or set()
     ignore_mapping = ignore_mapping or set()
     use_glob = use_glob or set()
     setup_cwd = setup_cwd or False
@@ -99,6 +102,7 @@ def with_argparse(
                 fn,
                 aliases=aliases,
                 ignore_rename=ignore_mapping,
+                ignore_keys=ignore_keys,
                 allow_glob=use_glob,
                 allow_custom=use_custom,
             )
