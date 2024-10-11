@@ -71,6 +71,21 @@ class ArgparseTestCase(unittest.TestCase):
         with sys_args(value=expect):
             self.assertEqual(wrapper(), outer_set_t(expect))
 
+    def test_unused_cli_input(self):
+        @with_argparse
+        def func(arg: str) -> str:
+            return arg
 
-if __name__ == "__main__":
-    unittest.main()
+        with sys_args(abc="123", arg="42"), self.assertRaises(SystemExit):
+            func()
+
+    def test_duplicate_inputs(self):
+        @with_argparse
+        def func(arg: str) -> str:
+            return arg
+
+        with sys_args(arg="456"):
+            with self.assertRaises(TypeError):
+                func(arg="123")
+            with self.assertRaises(TypeError):
+                func("123")
