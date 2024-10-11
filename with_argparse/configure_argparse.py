@@ -40,6 +40,7 @@ class _Argument:
 
 class WithArgparse:
     ignore_rename_sequences: set[str]
+    ignore_arg_keys: set[str]
     argument_mapping: MutableMapping[str, str]
     argument_aliases: MutableMapping[str, Sequence[str]]
     post_parse_type_conversions: MutableMapping[str, list[Callable[[Any], Any]]]
@@ -52,11 +53,13 @@ class WithArgparse:
         func,
         aliases: Optional[Mapping[str, Sequence[str]]] = None,
         ignore_rename: Optional[set[str]] = None,
+        ignore_keys: Optional[set[str]] = None,
         allow_glob: Optional[set[str]] = None,
         allow_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
     ):
         super().__init__()
         self.ignore_rename_sequences = ignore_rename or set()
+        self.ignore_arg_keys = ignore_keys or set()
         self.argument_mapping = dict()
         self.argument_aliases = dict(aliases or dict())
         self.post_parse_type_conversions = dict()
@@ -91,21 +94,36 @@ class WithArgparse:
         else:
             defaults = defaults + tuple(None for _ in range(len(info.args)))
 
+        setup_arguments = 0
+        argument_names: list[str] = list()
         for i, arg in enumerate(info.args or []):
-            if i < len(args):
+            argument_names.append(arg)
+            if arg in self.ignore_arg_keys:
                 continue
 
             if arg not in info.annotations:
                 raise ValueError(f"Argument {arg} must have a type annotation in order to be viable for argparse")
+
+            if arg in kwargs:
+                raise TypeError(
+                    f"Received multiple inputs for argument {arg}, received kwarg but argument is not "
+                    f"ignored via '@with_argparse(ignore_keys=...)'"
+                )
 
             arg_type = info.annotations[arg]
             arg_default = defaults[i]
             arg_required = info.defaults is None or len(info.defaults) <= (len(info.args) - (i + 1))
 
             self._setup_argument(arg, arg_type, arg_default, arg_required)
+            setup_arguments += 1
         for i, arg in enumerate(info.kwonlyargs or []):
-            if arg in kwargs:
+            argument_names.append(arg)
+            if arg in self.ignore_arg_keys:
                 continue
+            if arg in kwargs:
+                raise ValueError(
+                    f"Received multiple inputs for argument {arg}, received kwarg but argument is not "
+                    f"ignored via '@with_argparse(ignore_keys=...)'")
 
             if arg not in info.annotations:
                 raise ValueError(f"Argument {arg} must have a type annotation in order to be viable for argparse")
@@ -114,10 +132,41 @@ class WithArgparse:
             arg_default = info.kwonlydefaults.get(arg, None) if info.kwonlydefaults is not None else None
             arg_required = info.kwonlydefaults is None or arg not in info.kwonlydefaults
             self._setup_argument(arg, arg_type, arg_default, arg_required)
+            setup_arguments += 1
+
+        if setup_arguments == 0:
+            return self.func(*args, **kwargs)
 
         parsed_args = self.argparse.parse_args()
         args_dict: MutableMapping[str, Any]
         args_dict = dict()
+
+        if len(args) + len(kwargs) + setup_arguments != len(argument_names):
+            setup_arguments_names = list(parsed_args.__dict__.keys())
+            raise TypeError(
+                f"Received an invalid amount of arguments for {self.func}, configured {setup_arguments} "
+                f"arguments via argparse, however received additional {len(args)} positional and "
+                f"{len(kwargs)} keyword arguments: \n"
+                f"Configured arguments = {setup_arguments_names} \n"
+                f"Positional args = {args} \n"
+                f"Keyword args = {kwargs} \n"
+                f"Function signature = {info}"
+            )
+
+        overriden_kwargs: MutableMapping[str, Any]
+        overriden_kwargs = dict()
+
+        ignored_field_args = [field for field in argument_names if field in self.ignore_arg_keys]
+        for field_pos, field_name in enumerate(ignored_field_args):
+            if field_pos < len(args):
+                overriden_kwargs[field_name] = args[field_pos]
+            else:
+                if field_name not in kwargs:
+                    raise ValueError(
+                        f"Did not an argument for {field_name} (included in ignore_keys) via *args and "
+                        f"**kwargs for calling {self.func}"
+                    )
+                overriden_kwargs[field_name] = kwargs[field_name]
 
         for key, value in parsed_args.__dict__.items():
             if key in self.argument_mapping:
@@ -136,7 +185,15 @@ class WithArgparse:
                 value = conversion_func(value)
             args_dict[key] = value
 
-        return self.func(*args, **args_dict, **kwargs)
+        for key, value in overriden_kwargs.items():
+            if key in args_dict:
+                raise ValueError(
+                    f"Recieved multiple inputs for argument {key}, {value} via function call "
+                    f"and {args_dict[key]} via CLI. Consider adding '{key}' to 'ignore_keys'"
+                )
+            args_dict[key] = value
+
+        return self.func(**args_dict)
 
     def _setup_argument(
         self,
