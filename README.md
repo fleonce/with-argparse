@@ -1,5 +1,3 @@
-from with_argparse import with_argparsefrom typing import Optional
-
 # with-argparse
 
 `with-argparse` is a very simple and tiny package using `argparse.ArgumentParser` objects
