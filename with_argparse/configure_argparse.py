@@ -16,6 +16,7 @@ SEQUENCE_TYPES = SET_TYPES | LIST_TYPES
 _T = TypeVar("_T")
 
 logger = logging.getLogger("with_argparse")
+_NO_DEFAULT = None
 
 
 def first(iterable: Iterable[_T], default: Optional[_T] = None) -> _T:
@@ -87,12 +88,33 @@ class WithArgparse:
 
     def call(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
         info = inspect.getfullargspec(self.func)
+        callable_args = info.args or []
+        callable_kwonly = info.kwonlyargs or dict()
+        callable_defaults = info.defaults or []
 
-        defaults = tuple(None for _ in range(len(info.args) - len(info.defaults or [])))
-        if info.defaults:
-            defaults = defaults + info.defaults
-        else:
-            defaults = defaults + tuple(None for _ in range(len(info.args)))
+        # the first N arguments have no default value
+        # ... num positional args - num positional args w/ defaults
+        num_non_default_pos_arg = len(callable_args) - len(callable_defaults)
+        defaults = {i: None for i in range(num_non_default_pos_arg)}
+        if callable_defaults:
+            defaults.update({num_non_default_pos_arg + i: default for i, default in enumerate(callable_defaults)})
+
+        overrides = dict()
+        for i, arg in enumerate(args):
+            if i >= len(callable_args):
+                raise TypeError(
+                    f"Received {len(args)} positional arguments to call {self.func}, "
+                    f"function only accepts {len(callable_args)}"
+                )
+            ith_argname = callable_args[i]
+            overrides[ith_argname] = arg
+        for argname, argval in kwargs.items():
+            if argname in overrides:
+                raise TypeError(
+                    f"Received override for argname {argname} by positional AND keyword argument, "
+                    f"got {argname}={overrides[argname]} and {argname}={argval}"
+                )
+            overrides[argname] = argval
 
         setup_arguments = 0
         argument_names: list[str] = list()
@@ -104,15 +126,17 @@ class WithArgparse:
             if arg not in info.annotations:
                 raise ValueError(f"Argument {arg} must have a type annotation in order to be viable for argparse")
 
-            if arg in kwargs:
-                raise TypeError(
-                    f"Received multiple inputs for argument {arg}, received kwarg but argument is not "
-                    f"ignored via '@with_argparse(ignore_keys=...)'"
-                )
-
             arg_type = info.annotations[arg]
-            arg_default = defaults[i]
-            arg_required = info.defaults is None or len(info.defaults) <= (len(info.args) - (i + 1))
+            # default resolution via:
+            # - function annotation name: typ = default
+            # - function call override (positional) func(default)
+            # - function call override (keyword) func(name=default)
+            #
+            # if function call override is present, it should be used as default, otherwise,
+            # function annotation should be fallback
+            is_non_default_arg = i < num_non_default_pos_arg
+            arg_default = overrides.get(arg, defaults.get(i, _NO_DEFAULT))
+            arg_required = is_non_default_arg and arg_default is None
 
             self._setup_argument(arg, arg_type, arg_default, arg_required)
             setup_arguments += 1
@@ -129,8 +153,10 @@ class WithArgparse:
                 raise ValueError(f"Argument {arg} must have a type annotation in order to be viable for argparse")
 
             arg_type = info.annotations[arg]
-            arg_default = info.kwonlydefaults.get(arg, None) if info.kwonlydefaults is not None else None
-            arg_required = info.kwonlydefaults is None or arg not in info.kwonlydefaults
+            arg_default = overrides.get(arg, (info.kwonlydefaults or dict()).get(arg, _NO_DEFAULT))
+            arg_required = arg_default is _NO_DEFAULT
+            if arg_default is _NO_DEFAULT:
+                arg_default = None
             self._setup_argument(arg, arg_type, arg_default, arg_required)
             setup_arguments += 1
 
@@ -140,19 +166,6 @@ class WithArgparse:
         parsed_args = self.argparse.parse_args()
         args_dict: MutableMapping[str, Any]
         args_dict = dict()
-
-        if len(args) + len(kwargs) + setup_arguments != len(argument_names):
-            setup_arguments_names = list(parsed_args.__dict__.keys())
-            raise TypeError(
-                f"Received an invalid amount of arguments for {self.func}, configured {setup_arguments} "
-                f"arguments via argparse, however received additional {len(args)} positional and "
-                f"{len(kwargs)} keyword arguments: \n"
-                f"Configured arguments = {setup_arguments_names} \n"
-                f"Positional args = {args} \n"
-                f"Keyword args = {kwargs} \n"
-                f"Function signature = {info}"
-            )
-
         overriden_kwargs: MutableMapping[str, Any]
         overriden_kwargs = dict()
 

@@ -10,6 +10,18 @@ from tools import sys_args, foreach
 
 class ArgparseTestCase(unittest.TestCase):
 
+#    @foreach(inp={'microsoft/deberta-v3-large'})
+    def test_arg(self):
+        @with_argparse
+        def func(model: str, generative: bool = False, compare_to: int = 0, trust_remote_code: bool = False):
+            return model
+
+        model = "microsoft"
+        with sys_args():
+           self.assertEqual(func(model, True), model)
+           self.assertEqual(func(model=model, generative=True), model)
+           self.assertEqual(func(model, generative=True), model)
+
     def test_empty_argparse(self):
         @with_argparse()
         def wrapper():
@@ -85,7 +97,5 @@ class ArgparseTestCase(unittest.TestCase):
             return arg
 
         with sys_args(arg="456"):
-            with self.assertRaises(TypeError):
-                func(arg="123")
-            with self.assertRaises(TypeError):
-                func("123")
+            self.assertEqual(func(arg="123"), "456")
+            self.assertEqual(func("123"), "456")

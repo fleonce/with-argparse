@@ -45,11 +45,12 @@ class IgnoreTest(unittest.TestCase):
         def wrapper(*, inp: str, arg: str) -> str:
             return inp + arg
 
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(TypeError):
             wrapper("abc")
         with self.assertRaises(SystemExit):
             wrapper(arg="abc")
 
         with sys_args(inp="a"):
-            self.assertEqual("ab", wrapper("b"))
+            with self.assertRaises(TypeError):
+                wrapper("b")
             self.assertEqual("ab", wrapper(arg="b"))
