@@ -89,8 +89,8 @@ class WithArgparse:
     def call(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
         info = inspect.getfullargspec(self.func)
         callable_args = info.args or []
-        callable_kwonly = info.kwonlyargs or dict()
-        callable_defaults = info.defaults or []
+        callable_kwonly = info.kwonlyargs or []
+        callable_defaults = info.defaults or tuple()
 
         # the first N arguments have no default value
         # ... num positional args - num positional args w/ defaults
@@ -140,7 +140,7 @@ class WithArgparse:
 
             self._setup_argument(arg, arg_type, arg_default, arg_required)
             setup_arguments += 1
-        for i, arg in enumerate(info.kwonlyargs or []):
+        for i, arg in enumerate(callable_kwonly):
             argument_names.append(arg)
             if arg in self.ignore_arg_keys:
                 continue
