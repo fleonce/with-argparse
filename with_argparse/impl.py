@@ -49,6 +49,24 @@ def set_config(key: str, state: bool):
     config[key] = state
 
 
+def with_dataclass(
+    *,
+    dataclass=None,
+):
+    def wrapper(fn):
+        @functools.wraps(fn)
+        def inner(*inner_args, **inner_kwargs):
+            if not is_enabled():
+                return fn(*inner_args, **inner_kwargs)
+
+            parser = WithArgparse(
+                (dataclass, fn),
+            )
+            return parser.call(inner_args, inner_kwargs)
+        return inner
+    return wrapper
+
+
 @overload
 def with_argparse(
     *,
