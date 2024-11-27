@@ -1,6 +1,7 @@
 import dataclasses
 import inspect
 import logging
+import typing
 import warnings
 from argparse import ArgumentParser
 from dataclasses import dataclass, _MISSING_TYPE
@@ -107,12 +108,18 @@ class WithArgparse:
         if self.dataclass is None:
             raise ValueError("self.dataclass cannot be None")
 
+        field_hints = typing.get_type_hints(self.dataclass)
         for field in dataclasses.fields(self.dataclass):
             field_required = isinstance(field.default, _MISSING_TYPE)
             field_default = field.default if not field_required else None
+            field_type = field.type
+            if isinstance(field_type, str):
+                field_type = field_hints.get(field.name)
+            if not isinstance(field_type, type):
+                raise ValueError(f"Cannot determine type of {field.name}, got {field_type}")
             self._setup_argument(
                 field.name,
-                field.type,
+                field_type,
                 field_default,
                 field_required,
             )
