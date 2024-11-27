@@ -1,9 +1,8 @@
-import dataclasses
 import inspect
 import logging
 import warnings
 from argparse import ArgumentParser
-from dataclasses import dataclass, _MISSING_TYPE
+from dataclasses import dataclass
 from pathlib import Path
 from types import NoneType
 from typing import Any, Set, List, get_origin, get_args, Union, Literal, Optional, Sequence, TypeVar, Iterable, \
@@ -50,12 +49,9 @@ class WithArgparse:
     allow_custom: Mapping[str, Callable[[Any], Any]]
     allow_dispatch_custom: bool
 
-    func: Callable
-    dataclass: Optional[type]
-
     def __init__(
         self,
-        func_or_dataclass: Union[Callable, tuple[type, Callable]],
+        func,
         aliases: Optional[Mapping[str, Sequence[str]]] = None,
         ignore_rename: Optional[set[str]] = None,
         ignore_keys: Optional[set[str]] = None,
@@ -72,16 +68,7 @@ class WithArgparse:
         self.allow_custom = allow_custom or dict()
         self.allow_dispatch_custom = True
 
-        if isinstance(func_or_dataclass, tuple):
-            if not inspect.isclass(func_or_dataclass[0]):
-                raise ValueError("First argument must be a type")
-            if not dataclasses.is_dataclass(func_or_dataclass[0]):
-                raise ValueError("First argument must be a dataclass")
-            self.dataclass = func_or_dataclass[0]
-            self.func = func_or_dataclass[1]
-        else:
-            self.func = func_or_dataclass
-            self.dataclass = None
+        self.func = func
         self.argparse = ArgumentParser()
 
     def _register_mapping(self): ...
@@ -99,37 +86,7 @@ class WithArgparse:
         logger.debug(f"Registering post parse type conversion for {key}: {func.__name__} ({func})")
         self.post_parse_type_conversions[key].append(func)
 
-    def _call_dataclass(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
-        if args:
-            raise ValueError("Positional argument overrides are not supported, yet")
-        if kwargs:
-            raise ValueError("Keyword argument overrides are not supported, yet")
-        if self.dataclass is None:
-            raise ValueError("self.dataclass cannot be None")
-
-        for field in dataclasses.fields(self.dataclass):
-            field_required = isinstance(field.default, _MISSING_TYPE)
-            field_default = field.default if not field_required else None
-            self._setup_argument(
-                field.name,
-                field.type,
-                field_default,
-                field_required,
-            )
-
-        parsed_args = self.argparse.parse_args()
-        return self.func(self.dataclass(**parsed_args.__dict__))
-
     def call(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
-        if self.dataclass is not None:
-            return self._call_dataclass(args, kwargs)
-        elif self.func is not None:
-            return self._call_func(args, kwargs)
-        else:
-            raise ValueError("self.dataclass and self.func cannot both be None")
-
-
-    def _call_func(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
         info = inspect.getfullargspec(self.func)
         callable_args = info.args or []
         callable_kwonly = info.kwonlyargs or []
