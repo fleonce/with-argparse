@@ -114,7 +114,7 @@ class WithArgparse:
             field_default = field.default if not field_required else None
             field_type = field.type
             if isinstance(field_type, str):
-                field_type = field_hints.get(field.name)
+                field_type = typing.cast(type, field_hints.get(field.name))
 
             known_types = {type, Literal, GenericAlias}
             if type(field_type) not in known_types and typing.get_origin(field_type) not in known_types:
