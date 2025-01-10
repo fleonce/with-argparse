@@ -4,11 +4,13 @@ import logging
 import typing
 import warnings
 from argparse import ArgumentParser
-from dataclasses import dataclass, _MISSING_TYPE
+from dataclasses import dataclass, MISSING
 from pathlib import Path
-from types import NoneType
-from typing import Any, Set, List, get_origin, get_args, Union, Literal, Optional, Sequence, TypeVar, Iterable, \
+from types import NoneType, UnionType, GenericAlias
+from typing import (
+    Any, Set, List, get_origin, get_args, Union, Literal, Optional, Sequence, TypeVar, Iterable,
     Callable, MutableMapping, Mapping
+)
 from with_argparse.utils import glob_to_path_list, flatten
 
 SET_TYPES = {set, Set}
@@ -103,20 +105,20 @@ class WithArgparse:
     def _call_dataclass(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
         if args:
             raise ValueError("Positional argument overrides are not supported, yet")
-        if kwargs:
-            raise ValueError("Keyword argument overrides are not supported, yet")
         if self.dataclass is None:
             raise ValueError("self.dataclass cannot be None")
 
         field_hints = typing.get_type_hints(self.dataclass)
         for field in dataclasses.fields(self.dataclass):
-            field_required = isinstance(field.default, _MISSING_TYPE)
+            field_required = field.default is MISSING
             field_default = field.default if not field_required else None
             field_type = field.type
             if isinstance(field_type, str):
                 field_type = field_hints.get(field.name)
-            if not isinstance(field_type, type):
-                raise ValueError(f"Cannot determine type of {field.name}, got {field_type}")
+
+            known_types = {type, Literal, GenericAlias}
+            if type(field_type) not in known_types and typing.get_origin(field_type) not in known_types:
+                raise ValueError(f"Cannot determine type of {field.name}, got {field_type} {type(field_type)}")
             self._setup_argument(
                 field.name,
                 field_type,
@@ -125,7 +127,8 @@ class WithArgparse:
             )
 
         parsed_args = self.argparse.parse_args()
-        return self.func(self.dataclass(**parsed_args.__dict__))
+        args_dict = self._apply_name_mapping(parsed_args.__dict__, None)
+        return self.func(self.dataclass(**args_dict), **kwargs)
 
     def call(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
         if self.dataclass is not None:
@@ -231,12 +234,7 @@ class WithArgparse:
                     )
                 overriden_kwargs[field_name] = kwargs[field_name]
 
-        for key, value in parsed_args.__dict__.items():
-            if key in self.argument_mapping:
-                args_dict[self.argument_mapping[key]] = value
-            else:
-                args_dict[key] = value
-
+        args_dict = self._apply_name_mapping(parsed_args.__dict__, args_dict)
         for key, conversion_functions in self.post_parse_type_conversions.items():
             initial_value = args_dict[key]
             if initial_value is None:
@@ -257,6 +255,19 @@ class WithArgparse:
             args_dict[key] = value
 
         return self.func(**args_dict)
+
+    def _apply_name_mapping(
+        self,
+        parsed_args: Mapping[str, Any],
+        out: MutableMapping[str, Any] | None
+    ) -> MutableMapping[str, Any]:
+        out = out or dict()
+        for key, value in parsed_args.items():
+            if key in self.argument_mapping:
+                out[self.argument_mapping[key]] = value
+            else:
+                out[key] = value
+        return out
 
     def _setup_argument(
         self,
@@ -442,7 +453,7 @@ class WithArgparse:
             pass
         elif (
             origin_arg_type
-            and origin_arg_type is Union
+            and origin_arg_type in {Union, UnionType}
         ):
             inner_arg_types = get_args(arg_type)
             if len(inner_arg_types) == 2 and NoneType in inner_arg_types:

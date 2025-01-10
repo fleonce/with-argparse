@@ -1,16 +1,21 @@
-import itertools
-import sys
 import unittest
-from collections.abc import Iterable
-from functools import wraps
-from typing import Any, Optional, List, Set
-from with_argparse import with_argparse
+from typing import Optional, Set
+
 from tools import sys_args, foreach
+from with_argparse import with_argparse
 
 
 class ArgparseTestCase(unittest.TestCase):
 
-#    @foreach(inp={'microsoft/deberta-v3-large'})
+    def test_python3_11_type_union(self):
+        @with_argparse
+        def func(inp: int | None):
+            return inp
+
+        with sys_args(inp=123):
+            self.assertEqual(123, func())
+
+    #    @foreach(inp={'microsoft/deberta-v3-large'})
     def test_arg(self):
         @with_argparse
         def func(model: str, generative: bool = False, compare_to: int = 0, trust_remote_code: bool = False):
@@ -18,9 +23,9 @@ class ArgparseTestCase(unittest.TestCase):
 
         model = "microsoft"
         with sys_args():
-           self.assertEqual(func(model, True), model)
-           self.assertEqual(func(model=model, generative=True), model)
-           self.assertEqual(func(model, generative=True), model)
+            self.assertEqual(func(model, True), model)
+            self.assertEqual(func(model=model, generative=True), model)
+            self.assertEqual(func(model, generative=True), model)
 
     def test_empty_argparse(self):
         @with_argparse()
@@ -33,6 +38,7 @@ class ArgparseTestCase(unittest.TestCase):
         @with_argparse
         def wrapper(a: Optional[int] = None):
             return a
+
         wrapper()
 
     def test_list_argparse(self):
