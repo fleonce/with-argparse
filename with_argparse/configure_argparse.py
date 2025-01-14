@@ -116,9 +116,10 @@ class WithArgparse:
             if isinstance(field_type, str):
                 field_type = typing.cast(type, field_hints.get(field.name))
 
-            known_types = {type, Literal, GenericAlias}
-            if type(field_type) not in known_types and typing.get_origin(field_type) not in known_types:
-                raise ValueError(f"Cannot determine type of {field.name}, got {field_type} {type(field_type)}")
+            # known_types = {type, Literal, GenericAlias, UnionType}
+            # if type(field_type) not in known_types and typing.get_origin(field_type) not in known_types:
+            #     raise ValueError(f"Cannot determine type of {field.name}, got {field_type} {type(field_type)}")
+            # raises on typing.Optional[typing.Literal['epsilon', 'v_prediction']]
             self._setup_argument(
                 field.name,
                 field_type,
