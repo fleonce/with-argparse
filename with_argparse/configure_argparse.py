@@ -42,7 +42,6 @@ class _Argument:
     choices: Optional[Sequence[Any]] = None
     action: Optional[str] = None
 
-
 class WithArgparse:
     ignore_rename_sequences: set[str]
     ignore_arg_keys: set[str]
@@ -477,7 +476,42 @@ class WithArgparse:
                     arg_required
                 )
                 return inner
-            raise NotImplementedError(arg_type)
+            none_in_inner = NoneType in inner_arg_types
+
+            if none_in_inner:
+                raise NotImplementedError(inner_arg_types)
+            inner_arg_types = tuple(
+                self._dispatch_argparse_key_type(
+                    arg_name,
+                    inner_arg_type,
+                    arg_default,
+                    arg_required
+                )
+                for inner_arg_type in inner_arg_types
+            )
+            if len(inner_arg_types) < 2:
+                raise ValueError()
+
+            warnings.warn(f"Using type unions in with_argparse is early beta and subject to change in the future", stacklevel=2)
+            inner_types = [inner.type for inner in inner_arg_types]
+            def first_working_inner_type(inp):
+                for inner_type in inner_types:
+                    try:
+                        return inner_type(inp)
+                    except:
+                        continue
+                raise ValueError(inp)
+
+            first_inner = inner_arg_types[0]
+            return _Argument(
+                first_inner.name,
+                first_working_inner_type,
+                first_inner.default,
+                first_inner.required,
+                first_inner.nargs,
+                first_inner.choices,
+                first_inner.action
+            )
         elif origin_arg_type:
             inner_arg_types = get_args(arg_type)
             raise ValueError(
