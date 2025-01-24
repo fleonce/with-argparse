@@ -52,6 +52,7 @@ def set_config(key: str, state: bool):
 def with_dataclass(
     *,
     dataclass=None,
+    allow_glob: Optional[set[str]] = None,
 ):
     def wrapper(fn):
         @functools.wraps(fn)
@@ -61,6 +62,7 @@ def with_dataclass(
 
             parser = WithArgparse(
                 (dataclass, fn),
+                allow_glob=allow_glob,
             )
             return parser.call(inner_args, inner_kwargs)
         return inner

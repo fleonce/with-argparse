@@ -5,13 +5,14 @@ import typing
 import warnings
 from argparse import ArgumentParser
 from dataclasses import dataclass, MISSING
+from functools import partial
 from pathlib import Path
-from types import NoneType, UnionType, GenericAlias
+from types import NoneType, UnionType
 from typing import (
     Any, Set, List, get_origin, get_args, Union, Literal, Optional, Sequence, TypeVar, Iterable,
     Callable, MutableMapping, Mapping
 )
-from with_argparse.utils import glob_to_path_list, flatten
+from with_argparse.utils import flatten, glob_to_paths
 
 SET_TYPES = {set, Set}
 LIST_TYPES = {list, List}
@@ -128,6 +129,7 @@ class WithArgparse:
 
         parsed_args = self.argparse.parse_args()
         args_dict = self._apply_name_mapping(parsed_args.__dict__, None)
+        args_dict = self._apply_post_parse_conversions(args_dict, dict())
         return self.func(self.dataclass(**args_dict), **kwargs)
 
     def call(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
@@ -235,16 +237,7 @@ class WithArgparse:
                 overriden_kwargs[field_name] = kwargs[field_name]
 
         args_dict = self._apply_name_mapping(parsed_args.__dict__, args_dict)
-        for key, conversion_functions in self.post_parse_type_conversions.items():
-            initial_value = args_dict[key]
-            if initial_value is None:
-                args_dict[key] = initial_value
-                continue
-
-            value = initial_value
-            for conversion_func in conversion_functions:
-                value = conversion_func(value)
-            args_dict[key] = value
+        args_dict = self._apply_post_parse_conversions(args_dict, args_dict)
 
         for key, value in overriden_kwargs.items():
             if key in args_dict:
@@ -267,6 +260,25 @@ class WithArgparse:
                 out[self.argument_mapping[key]] = value
             else:
                 out[key] = value
+        return out
+
+    def _apply_post_parse_conversions(
+        self,
+        parsed_args: Mapping[str, Any],
+        out: MutableMapping[str, Any] | None
+    ) -> MutableMapping[str, Any]:
+        out = out or dict()
+        out.update(parsed_args)
+        for key, conversion_functions in self.post_parse_type_conversions.items():
+            initial_value = parsed_args[key]
+            if initial_value is None:
+                out[key] = initial_value
+                continue
+
+            value = initial_value
+            for conversion_func in conversion_functions:
+                value = conversion_func(value)
+            out[key] = value
         return out
 
     def _setup_argument(
@@ -521,7 +533,7 @@ class WithArgparse:
         else:
             orig_arg_name = self._resolve_orig_arg_name(arg_name)
             if (
-                arg_type == Path
+                arg_type in {Path, str}
                 and orig_arg_name in self.allow_glob
             ):
                 self._register_post_parse_type_conversion(
@@ -531,7 +543,7 @@ class WithArgparse:
 
                 return _Argument(
                     arg_name,
-                    glob_to_path_list,
+                    partial(glob_to_paths, func=arg_type),
                     arg_default,
                     arg_required,
                     False,

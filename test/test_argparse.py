@@ -1,11 +1,25 @@
+import logging
 import unittest
 from typing import Optional, Set
 
 from tools import sys_args, foreach
 from with_argparse import with_argparse
 
+logging.basicConfig(
+    level="DEBUG"
+)
+
 
 class ArgparseTestCase(unittest.TestCase):
+
+    def test_multi_type_union(self):
+        @with_argparse
+        def func(inp: int | float):
+            return inp
+
+        value = 123.456
+        with sys_args(inp=value):
+            self.assertEqual(value, func())
 
     def test_python3_11_type_union(self):
         @with_argparse
