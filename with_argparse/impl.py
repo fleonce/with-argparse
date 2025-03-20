@@ -4,7 +4,8 @@ import typing
 from typing import Callable, Union, ParamSpec, TypeVar, overload, Optional, Mapping, _SpecialForm, Any
 import warnings
 
-from with_argparse.configure_argparse import WithArgparse
+from with_argparse.configure_argparse import WithArgparse, DataclassConfig
+from with_argparse.types import DataclassInstance
 
 try:
     from pyrootutils import setup_root as setup_root_fn
@@ -50,10 +51,13 @@ def set_config(key: str, state: bool):
 
 
 def with_dataclass(
-    *,
-    dataclass=None,
+    *pos: type[DataclassInstance],
     allow_glob: Optional[set[str]] = None,
+    **kwargs: type[DataclassInstance],
 ):
+    if not pos:
+        pos = tuple()
+
     def wrapper(fn):
         @functools.wraps(fn)
         def inner(*inner_args, **inner_kwargs):
@@ -61,7 +65,11 @@ def with_dataclass(
                 return fn(*inner_args, **inner_kwargs)
 
             parser = WithArgparse(
-                (dataclass, fn),
+                DataclassConfig(
+                    fn,
+                    pos,
+                    kwargs,
+                ),
                 allow_glob=allow_glob,
             )
             return parser.call(inner_args, inner_kwargs)

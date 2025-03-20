@@ -12,6 +12,8 @@ from typing import (
     Any, Set, List, get_origin, get_args, Union, Literal, Optional, Sequence, TypeVar, Iterable,
     Callable, MutableMapping, Mapping
 )
+
+from with_argparse.types import DataclassInstance
 from with_argparse.utils import flatten, glob_to_paths
 
 SET_TYPES = {set, Set}
@@ -43,6 +45,13 @@ class _Argument:
     choices: Optional[Sequence[Any]] = None
     action: Optional[str] = None
 
+
+@dataclass
+class DataclassConfig:
+    func: Callable
+    positional_dataclasses: tuple[type[DataclassInstance], ...]
+    keyword_dataclasses: dict[str, type[DataclassInstance]]
+
 class WithArgparse:
     ignore_rename_sequences: set[str]
     ignore_arg_keys: set[str]
@@ -54,11 +63,11 @@ class WithArgparse:
     allow_dispatch_custom: bool
 
     func: Callable
-    dataclass: Optional[type]
+    dataclass: Optional[DataclassConfig]
 
     def __init__(
         self,
-        func_or_dataclass: Union[Callable, tuple[type, Callable]],
+        func_or_dataclass: Union[Callable, DataclassConfig],
         aliases: Optional[Mapping[str, Sequence[str]]] = None,
         ignore_rename: Optional[set[str]] = None,
         ignore_keys: Optional[set[str]] = None,
@@ -75,13 +84,9 @@ class WithArgparse:
         self.allow_custom = allow_custom or dict()
         self.allow_dispatch_custom = True
 
-        if isinstance(func_or_dataclass, tuple):
-            if not inspect.isclass(func_or_dataclass[0]):
-                raise ValueError("First argument must be a type")
-            if not dataclasses.is_dataclass(func_or_dataclass[0]):
-                raise ValueError("First argument must be a dataclass")
-            self.dataclass = func_or_dataclass[0]
-            self.func = func_or_dataclass[1]
+        if isinstance(func_or_dataclass, DataclassConfig):
+            self.dataclass = func_or_dataclass
+            self.func = func_or_dataclass.func
         else:
             self.func = func_or_dataclass
             self.dataclass = None
@@ -108,29 +113,51 @@ class WithArgparse:
         if self.dataclass is None:
             raise ValueError("self.dataclass cannot be None")
 
-        field_hints = typing.get_type_hints(self.dataclass)
-        for field in dataclasses.fields(self.dataclass):
-            field_required = field.default is MISSING
-            field_default = field.default if not field_required else None
-            field_type = field.type
-            if isinstance(field_type, str):
-                field_type = typing.cast(type, field_hints.get(field.name))
+        positional_dataclasses = self.dataclass.positional_dataclasses or tuple()
+        keyword_dataclasses = self.dataclass.keyword_dataclasses or dict()
+        dataclasses_to_process = [*positional_dataclasses, *keyword_dataclasses.values()]
 
-            # known_types = {type, Literal, GenericAlias, UnionType}
-            # if type(field_type) not in known_types and typing.get_origin(field_type) not in known_types:
-            #     raise ValueError(f"Cannot determine type of {field.name}, got {field_type} {type(field_type)}")
-            # raises on typing.Optional[typing.Literal['epsilon', 'v_prediction']]
-            self._setup_argument(
-                field.name,
-                field_type,
-                field_default,
-                field_required,
-            )
+        for klass in dataclasses_to_process:
+            field_hints = typing.get_type_hints(klass)
+            for field in dataclasses.fields(klass):
+                field_required = field.default is MISSING
+                field_default = field.default if not field_required else None
+                field_type = field.type
+                if isinstance(field_type, str):
+                    field_type = typing.cast(type, field_hints.get(field.name))
+
+                # known_types = {type, Literal, GenericAlias, UnionType}
+                # if type(field_type) not in known_types and typing.get_origin(field_type) not in known_types:
+                #     raise ValueError(f"Cannot determine type of {field.name}, got {field_type} {type(field_type)}")
+                # raises on typing.Optional[typing.Literal['epsilon', 'v_prediction']]
+                self._setup_argument(
+                    field.name,
+                    field_type,
+                    field_default,
+                    field_required,
+                )
 
         parsed_args = self.argparse.parse_args()
         args_dict = self._apply_name_mapping(parsed_args.__dict__, None)
         args_dict = self._apply_post_parse_conversions(args_dict, dict())
-        return self.func(self.dataclass(**args_dict), **kwargs)
+
+        pos = tuple()
+        keywords = dict()
+        for i, klass in enumerate(positional_dataclasses):
+            klass_args = dict()
+            for field in dataclasses.fields(klass):
+                klass_args[field.name] = args_dict[field.name]
+
+            pos = pos + (klass(**klass_args),)
+
+        for name, klass in keyword_dataclasses.items():
+            klass_args = dict()
+            for field in dataclasses.fields(klass):
+                klass_args[field.name] = args_dict[field.name]
+
+            keywords[name] = klass(**klass_args)
+
+        return self.func(*pos, **keywords, **kwargs)
 
     def call(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
         if self.dataclass is not None:

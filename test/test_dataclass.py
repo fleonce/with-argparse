@@ -18,9 +18,24 @@ class DataclassTest(unittest.TestCase):
             param: Literal['a', 'b']
             items: list[str]
 
-        @with_dataclass(dataclass=Test)
+        @with_dataclass(args=Test)
         def func(args: Test):
             return args.param
 
         with sys_args(param="a", item=["a"]):
             self.assertEqual("a", func())
+
+    def test_multi_dataclass(self):
+        @dataclass
+        class A:
+            param: Literal['a', 'b']
+        @dataclass
+        class B:
+            number: int
+
+        @with_dataclass(A, B)
+        def func(arg1: A, arg2: B):
+            return len(arg1.param) + arg2.number
+
+        with sys_args(param="a", number=1):
+            self.assertEqual(2, func())
