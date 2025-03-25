@@ -61,6 +61,7 @@ class WithArgparse:
     allow_glob: set[str]
     allow_custom: Mapping[str, Callable[[Any], Any]]
     allow_dispatch_custom: bool
+    partial_parse: bool
 
     func: Callable
     dataclass: Optional[DataclassConfig]
@@ -73,6 +74,7 @@ class WithArgparse:
         ignore_keys: Optional[set[str]] = None,
         allow_glob: Optional[set[str]] = None,
         allow_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
+        partial_parse: Optional[bool] = None,
     ):
         super().__init__()
         self.ignore_rename_sequences = ignore_rename or set()
@@ -83,6 +85,7 @@ class WithArgparse:
         self.allow_glob = allow_glob or set()
         self.allow_custom = allow_custom or dict()
         self.allow_dispatch_custom = True
+        self.partial_parse = partial_parse or False
 
         if isinstance(func_or_dataclass, DataclassConfig):
             self.dataclass = func_or_dataclass
@@ -106,6 +109,11 @@ class WithArgparse:
 
         logger.debug(f"Registering post parse type conversion for {key}: {func.__name__} ({func})")
         self.post_parse_type_conversions[key].append(func)
+
+    def _argparse_parse(self):
+        if self.partial_parse:
+            return self.argparse.parse_known_args()[0]
+        return self.argparse.parse_args()
 
     def _call_dataclass(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
         if args:
@@ -137,7 +145,7 @@ class WithArgparse:
                     field_required,
                 )
 
-        parsed_args = self.argparse.parse_args()
+        parsed_args = self._argparse_parse()
         args_dict = self._apply_name_mapping(parsed_args.__dict__, None)
         args_dict = self._apply_post_parse_conversions(args_dict, dict())
 
@@ -245,7 +253,7 @@ class WithArgparse:
         if setup_arguments == 0:
             return self.func(*args, **kwargs)
 
-        parsed_args = self.argparse.parse_args()
+        parsed_args = self._argparse_parse()
         args_dict: MutableMapping[str, Any]
         args_dict = dict()
         overriden_kwargs: MutableMapping[str, Any]

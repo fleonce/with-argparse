@@ -53,6 +53,7 @@ def set_config(key: str, state: bool):
 def with_dataclass(
     *pos: type[DataclassInstance],
     allow_glob: Optional[set[str]] = None,
+    partial_parse: Optional[bool] = None,
     **kwargs: type[DataclassInstance],
 ):
     if not pos:
@@ -71,6 +72,7 @@ def with_dataclass(
                     kwargs,
                 ),
                 allow_glob=allow_glob,
+                partial_parse=partial_parse,
             )
             return parser.call(inner_args, inner_kwargs)
         return inner
@@ -101,6 +103,7 @@ def with_argparse(
     aliases: Optional[Mapping[str, list[str]]] = None,
     use_glob: Optional[set[str]] = None,
     use_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
+    partial_parse: Optional[bool] = None,
     **kwargs: Callable[[Any], Any]
 ):
     aliases = aliases or dict()
@@ -110,6 +113,7 @@ def with_argparse(
     setup_cwd = setup_cwd or False
     use_custom = use_custom or dict()
     use_custom = dict(use_custom, **kwargs)
+    partial_parse = partial_parse or False
 
     def wrapper(fn):
         @functools.wraps(fn)
@@ -133,6 +137,7 @@ def with_argparse(
                 ignore_keys=ignore_keys,
                 allow_glob=use_glob,
                 allow_custom=use_custom,
+                partial_parse=partial_parse
             )
             return parser.call(inner_args, inner_kwargs)
         return inner
