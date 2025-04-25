@@ -58,6 +58,12 @@ def with_dataclass(
 ):
     if not pos:
         pos = tuple()
+    else:
+        pass
+        # raise NotImplementedError(
+        #   f"In the future, I would entertain the idea to get the dataclass instances from the "
+        #   f"method spec instead of specifying it again via positional or keyword arguments"
+        # )
 
     def wrapper(fn):
         @functools.wraps(fn)
@@ -88,6 +94,7 @@ def with_argparse(
     aliases: Optional[Mapping[str, list[str]]] = None,
     use_glob: Optional[set[str]] = None,
     use_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
+    partial_parse: Optional[bool] = None,
     **kwargs: Callable[[Any], Any]
 ) -> Callable[[Callable[P, T]], Callable[[], T]]: ...
 
@@ -146,3 +153,50 @@ def with_argparse(
         return wrapper
 
     return wrapper(func)
+
+
+@overload
+def script_argparse(
+    *,
+    ignore_keys: Optional[set[str]] = None,
+    ignore_mapping: Optional[set[str]] = None,
+    setup_cwd: Optional[bool] = None,
+    aliases: Optional[Mapping[str, list[str]]] = None,
+    use_glob: Optional[set[str]] = None,
+    use_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
+    partial_parse: Optional[bool] = None,
+    **kwargs: Callable[[Any], Any]
+) -> Callable[[Callable[P, T]], Callable[[], T]]: ...
+
+@overload
+def script_argparse(func: Callable[P, T], /) -> Callable[[], T]: ...
+
+def script_argparse(
+    func=None,
+    *,
+    ignore_keys: Optional[set[str]] = None,
+    ignore_mapping: Optional[set[str]] = None,
+    setup_cwd: Optional[bool] = None,
+    aliases: Optional[Mapping[str, list[str]]] = None,
+    use_glob: Optional[set[str]] = None,
+    use_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
+    partial_parse: Optional[bool] = None,
+    **kwargs: Callable[[Any], Any]
+):
+    decorator_func = with_argparse(
+        ignore_keys=ignore_keys,
+        ignore_mapping=ignore_mapping,
+        setup_cwd=setup_cwd,
+        aliases=aliases,
+        use_glob=use_glob,
+        use_custom=use_custom,
+        partial_parse=partial_parse,
+        **kwargs,
+    )
+
+    argparse_func = decorator_func(func)
+    argparse_result = argparse_func()
+
+    def producer_func():
+        return argparse_result
+    return producer_func
