@@ -131,8 +131,11 @@ class WithArgparse:
                 field_required = field.default is MISSING
                 field_default = field.default if not field_required else None
                 field_type = field.type
+                field_help = None
                 if isinstance(field_type, str):
                     field_type = typing.cast(type, field_hints.get(field.name))
+                if field.metadata is not None and "help" in field.metadata:
+                    field_help = str(field.metadata["help"])
 
                 # known_types = {type, Literal, GenericAlias, UnionType}
                 # if type(field_type) not in known_types and typing.get_origin(field_type) not in known_types:
@@ -143,6 +146,7 @@ class WithArgparse:
                     field_type,
                     field_default,
                     field_required,
+                    field_help,
                 )
 
         parsed_args = self._argparse_parse()
@@ -228,7 +232,7 @@ class WithArgparse:
             arg_default = overrides.get(arg, defaults.get(i, _NO_DEFAULT))
             arg_required = is_non_default_arg and arg_default is None
 
-            self._setup_argument(arg, arg_type, arg_default, arg_required)
+            self._setup_argument(arg, arg_type, arg_default, arg_required, None)
             setup_arguments += 1
         for i, arg in enumerate(callable_kwonly):
             argument_names.append(arg)
@@ -247,7 +251,7 @@ class WithArgparse:
             arg_required = arg_default is _NO_DEFAULT
             if arg_default is _NO_DEFAULT:
                 arg_default = None
-            self._setup_argument(arg, arg_type, arg_default, arg_required)
+            self._setup_argument(arg, arg_type, arg_default, arg_required, None)
             setup_arguments += 1
 
         if setup_arguments == 0:
@@ -321,13 +325,14 @@ class WithArgparse:
         arg_name: str,
         arg_type: type,
         arg_default: Any,
-        arg_required: bool
+        arg_required: bool,
+        arg_help: Optional[str],
     ):
         args = self._dispatch_argparse_key_type(
             arg_name,
             arg_type,
             arg_default,
-            arg_required
+            arg_required,
         )
         argparse_kwargs: dict[str, Any]
         argparse_kwargs = dict()
@@ -345,6 +350,8 @@ class WithArgparse:
             argparse_kwargs["nargs"] = "+"
         if args.choices:
             argparse_kwargs["choices"] = args.choices
+        if arg_help:
+            argparse_kwargs["help"] = arg_help
 
         aliases = self.argument_aliases.get(arg_name, list())
         self.argparse.add_argument(
