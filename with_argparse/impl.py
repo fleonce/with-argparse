@@ -41,12 +41,10 @@ config = {
 
 
 def is_enabled():
-    global config
     return config.get("enabled", True)
 
 
 def set_config(key: str, state: bool):
-    global config
     config[key] = state
 
 
