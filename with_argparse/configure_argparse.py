@@ -153,7 +153,7 @@ class WithArgparse:
         args_dict = self._apply_name_mapping(parsed_args.__dict__, None)
         args_dict = self._apply_post_parse_conversions(args_dict, dict())
 
-        pos = tuple()
+        pos: tuple[Any, ...] = tuple()
         keywords = dict()
         for i, klass in enumerate(positional_dataclasses):
             klass_args = dict()
