@@ -1,11 +1,11 @@
 [project]
 name = "with-argparse"
 description = "A simple but handy Python library to generate a `argparse.ArgumentParser` object from a type-annotated method "
-version = "1.0.4"
+version = "1.0.5rc1"
 license = {text = "Apache 2.0"}
 readme = "README.md"
 
-dependencies = []
+dependencies = ["typing-extensions>=4.15.0"]
 requires-python = ">= 3.8"
 
 authors = [

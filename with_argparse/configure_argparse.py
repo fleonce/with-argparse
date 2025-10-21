@@ -10,11 +10,13 @@ from pathlib import Path
 from types import NoneType, UnionType
 from typing import (
     Any, Set, List, get_origin, get_args, Union, Literal, Optional, Sequence, TypeVar, Iterable,
-    Callable, MutableMapping, Mapping
+    Callable, MutableMapping, Mapping,
 )
+from typing_extensions import Self
 
 from with_argparse.types import DataclassInstance
 from with_argparse.utils import flatten, glob_to_paths
+from with_argparse.setup import config
 
 SET_TYPES = {set, Set}
 LIST_TYPES = {list, List}
@@ -75,8 +77,14 @@ class WithArgparse:
         allow_glob: Optional[set[str]] = None,
         allow_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
         partial_parse: Optional[bool] = None,
+        add_help: Optional[bool] = None,
+        on_help: Optional[Callable[[Self], Any]] = None
     ):
         super().__init__()
+
+        if add_help is None:
+            add_help = config["add_help"]
+
         self.ignore_rename_sequences = ignore_rename or set()
         self.ignore_arg_keys = ignore_keys or set()
         self.argument_mapping = dict()
@@ -86,6 +94,7 @@ class WithArgparse:
         self.allow_custom = allow_custom or dict()
         self.allow_dispatch_custom = True
         self.partial_parse = partial_parse or False
+        self.on_help = on_help
 
         if isinstance(func_or_dataclass, DataclassConfig):
             self.dataclass = func_or_dataclass
@@ -93,7 +102,14 @@ class WithArgparse:
         else:
             self.func = func_or_dataclass
             self.dataclass = None
-        self.argparse = ArgumentParser()
+
+        self.argparse = ArgumentParser(
+            add_help=add_help,
+            conflict_handler="resolve" if on_help is not None else "error"
+        )
+
+        if on_help is not None:
+            self.argparse.add_argument("-h", "--help", action="store_true", dest="_help")
 
     def _register_mapping(self): ...
 
@@ -112,8 +128,13 @@ class WithArgparse:
 
     def _argparse_parse(self):
         if self.partial_parse:
-            return self.argparse.parse_known_args()[0]
-        return self.argparse.parse_args()
+            namespace = self.argparse.parse_known_args()[0]
+        else:
+            namespace = self.argparse.parse_args()
+        if self.on_help is not None and callable(self.on_help) and "_help" in namespace:
+            if namespace._help:
+                self.on_help(self)
+        return namespace
 
     def _call_dataclass(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
         if args:
@@ -328,6 +349,9 @@ class WithArgparse:
         arg_required: bool,
         arg_help: Optional[str],
     ):
+        if arg_name == "_help":
+            return
+
         args = self._dispatch_argparse_key_type(
             arg_name,
             arg_type,

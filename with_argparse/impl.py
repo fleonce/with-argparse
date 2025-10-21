@@ -6,6 +6,7 @@ import warnings
 
 from with_argparse.configure_argparse import WithArgparse, DataclassConfig
 from with_argparse.types import DataclassInstance
+from with_argparse.setup import config
 
 try:
     from pyrootutils import setup_root as setup_root_fn
@@ -35,13 +36,10 @@ ORIGIN_TYPES = {
     typing.Union,
     typing.Optional,
 }
-config = {
-    "enabled": True
-}
 
 
 def is_enabled():
-    return config.get("enabled", True)
+    return config.get("argparse_enabled", True)
 
 
 def set_config(key: str, state: bool):
@@ -52,6 +50,8 @@ def with_dataclass(
     *pos: type[DataclassInstance],
     allow_glob: Optional[set[str]] = None,
     partial_parse: Optional[bool] = None,
+    add_help: Optional[bool] = None,
+    on_help: Optional[Callable[[WithArgparse], Any]] = None,
     **kwargs: type[DataclassInstance],
 ):
     if not pos:
@@ -77,6 +77,8 @@ def with_dataclass(
                 ),
                 allow_glob=allow_glob,
                 partial_parse=partial_parse,
+                add_help=add_help,
+                on_help=on_help,
             )
             return parser.call(inner_args, inner_kwargs)
         return inner
@@ -93,6 +95,8 @@ def with_argparse(
     use_glob: Optional[set[str]] = None,
     use_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
     partial_parse: Optional[bool] = None,
+    add_help: Optional[bool] = None,
+    on_help: Optional[Callable[[WithArgparse], Any]] = None,
     **kwargs: Callable[[Any], Any]
 ) -> Callable[[Callable[P, T]], Callable[[], T]]: ...
 
@@ -109,6 +113,8 @@ def with_argparse(
     use_glob: Optional[set[str]] = None,
     use_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
     partial_parse: Optional[bool] = None,
+    add_help: Optional[bool] = None,
+    on_help: Optional[Callable[[WithArgparse], Any]] = None,
     **kwargs: Callable[[Any], Any]
 ):
     aliases = aliases or dict()
@@ -142,7 +148,9 @@ def with_argparse(
                 ignore_keys=ignore_keys,
                 allow_glob=use_glob,
                 allow_custom=use_custom,
-                partial_parse=partial_parse
+                partial_parse=partial_parse,
+                add_help=add_help,
+                on_help=on_help,
             )
             return parser.call(inner_args, inner_kwargs)
         return inner
@@ -163,6 +171,8 @@ def script_argparse(
     use_glob: Optional[set[str]] = None,
     use_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
     partial_parse: Optional[bool] = None,
+    add_help: Optional[bool] = None,
+    on_help: Optional[Callable[[WithArgparse], Any]] = None,
     **kwargs: Callable[[Any], Any]
 ) -> Callable[[Callable[P, T]], Callable[[], T]]: ...
 
