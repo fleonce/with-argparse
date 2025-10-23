@@ -195,7 +195,7 @@ class WithArgparse:
             keywords[name] = klass(**klass_args)
 
         if self.partial_parse_pass_remaining_args:
-            keywords["args"] = self.remaining_args
+            keywords["_args"] = self.remaining_args
 
         return self.func(*pos, **keywords, **kwargs)
 
@@ -314,6 +314,9 @@ class WithArgparse:
                 )
             args_dict[key] = value
 
+        if self.partial_parse_pass_remaining_args:
+            args_dict["_args"] = self.remaining_args
+
         return self.func(**args_dict)
 
     def _apply_name_mapping(
@@ -356,7 +359,7 @@ class WithArgparse:
         arg_required: bool,
         arg_help: Optional[str],
     ):
-        if arg_name == "_help":
+        if arg_name.startswith("_"):
             return
 
         args = self._dispatch_argparse_key_type(
