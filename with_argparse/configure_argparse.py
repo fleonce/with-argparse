@@ -64,6 +64,7 @@ class WithArgparse:
     allow_custom: Mapping[str, Callable[[Any], Any]]
     allow_dispatch_custom: bool
     partial_parse: bool
+    remaining_args: list[str]
 
     func: Callable
     dataclass: Optional[DataclassConfig]
@@ -77,6 +78,7 @@ class WithArgparse:
         allow_glob: Optional[set[str]] = None,
         allow_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
         partial_parse: Optional[bool] = None,
+        partial_parse_pass_remaining_args: Optional[bool] = None,
         add_help: Optional[bool] = None,
         on_help: Optional[Callable[[Self], Any]] = None
     ):
@@ -94,6 +96,8 @@ class WithArgparse:
         self.allow_custom = allow_custom or dict()
         self.allow_dispatch_custom = True
         self.partial_parse = partial_parse or False
+        self.remaining_args = []
+        self.partial_parse_pass_remaining_args = partial_parse_pass_remaining_args or False
         self.on_help = on_help
 
         if isinstance(func_or_dataclass, DataclassConfig):
@@ -128,7 +132,7 @@ class WithArgparse:
 
     def _argparse_parse(self):
         if self.partial_parse:
-            namespace = self.argparse.parse_known_args()[0]
+            namespace, self.remaining_args = self.argparse.parse_known_args()
         else:
             namespace = self.argparse.parse_args()
         if self.on_help is not None and callable(self.on_help) and "_help" in namespace:
@@ -175,7 +179,7 @@ class WithArgparse:
         args_dict = self._apply_post_parse_conversions(args_dict, dict())
 
         pos: tuple[Any, ...] = tuple()
-        keywords = dict()
+        keywords: MutableMapping[str, Any] = dict()
         for i, klass in enumerate(positional_dataclasses):
             klass_args = dict()
             for field in dataclasses.fields(klass):
@@ -189,6 +193,9 @@ class WithArgparse:
                 klass_args[field.name] = args_dict[field.name]
 
             keywords[name] = klass(**klass_args)
+
+        if self.partial_parse_pass_remaining_args:
+            keywords["args"] = self.remaining_args
 
         return self.func(*pos, **keywords, **kwargs)
 

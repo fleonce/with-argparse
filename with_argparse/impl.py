@@ -52,6 +52,7 @@ def with_dataclass(
     partial_parse: Optional[bool] = None,
     add_help: Optional[bool] = None,
     on_help: Optional[Callable[[WithArgparse], Any]] = None,
+    partial_parse_pass_remaining_args: Optional[bool] = None,
     **kwargs: type[DataclassInstance],
 ):
     if not pos:
@@ -77,6 +78,7 @@ def with_dataclass(
                 ),
                 allow_glob=allow_glob,
                 partial_parse=partial_parse,
+                partial_parse_pass_remaining_args=partial_parse_pass_remaining_args,
                 add_help=add_help,
                 on_help=on_help,
             )
@@ -95,6 +97,7 @@ def with_argparse(
     use_glob: Optional[set[str]] = None,
     use_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
     partial_parse: Optional[bool] = None,
+    partial_parse_pass_remaining_args: Optional[bool] = None,
     add_help: Optional[bool] = None,
     on_help: Optional[Callable[[WithArgparse], Any]] = None,
     **kwargs: Callable[[Any], Any]
@@ -113,6 +116,7 @@ def with_argparse(
     use_glob: Optional[set[str]] = None,
     use_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
     partial_parse: Optional[bool] = None,
+    partial_parse_pass_remaining_args: Optional[bool] = None,
     add_help: Optional[bool] = None,
     on_help: Optional[Callable[[WithArgparse], Any]] = None,
     **kwargs: Callable[[Any], Any]
@@ -149,6 +153,7 @@ def with_argparse(
                 allow_glob=use_glob,
                 allow_custom=use_custom,
                 partial_parse=partial_parse,
+                partial_parse_pass_remaining_args=partial_parse_pass_remaining_args,
                 add_help=add_help,
                 on_help=on_help,
             )
@@ -171,6 +176,7 @@ def script_argparse(
     use_glob: Optional[set[str]] = None,
     use_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
     partial_parse: Optional[bool] = None,
+    partial_parse_pass_remaining_args: Optional[bool] = None,
     add_help: Optional[bool] = None,
     on_help: Optional[Callable[[WithArgparse], Any]] = None,
     **kwargs: Callable[[Any], Any]
@@ -189,6 +195,9 @@ def script_argparse(
     use_glob: Optional[set[str]] = None,
     use_custom: Optional[Mapping[str, Callable[[Any], Any]]] = None,
     partial_parse: Optional[bool] = None,
+    partial_parse_pass_remaining_args: Optional[bool] = None,
+    add_help: Optional[bool] = None,
+    on_help: Optional[Callable[[WithArgparse], Any]] = None,
     **kwargs: Callable[[Any], Any]
 ):
     decorator_func = with_argparse(
@@ -199,6 +208,9 @@ def script_argparse(
         use_glob=use_glob,
         use_custom=use_custom,
         partial_parse=partial_parse,
+        partial_parse_pass_remaining_args=partial_parse_pass_remaining_args,
+        add_help=add_help,
+        on_help=on_help,
         **kwargs,
     )
 
