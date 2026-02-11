@@ -42,6 +42,10 @@ def is_enabled():
     return config.get("argparse_enabled", True)
 
 
+def set_enabled(enabled: bool):
+    set_config("argparse_enabled", enabled)
+
+
 def set_config(key: str, state: bool):
     config[key] = state
 
