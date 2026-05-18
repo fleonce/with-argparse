@@ -1,10 +1,13 @@
+import argparse
 import dataclasses
 import inspect
 import logging
+import sys
 import typing
 import warnings
 from argparse import ArgumentParser
-from dataclasses import dataclass, MISSING
+from collections import defaultdict, OrderedDict
+from dataclasses import dataclass, MISSING, is_dataclass
 from functools import partial
 from pathlib import Path
 from types import NoneType, UnionType
@@ -26,6 +29,13 @@ _T = TypeVar("_T")
 
 logger = logging.getLogger("with_argparse")
 _NO_DEFAULT = None
+
+
+def _help_called():
+    parser = ArgumentParser(add_help=False)
+    parser.add_argument("-h", "--help", action="store_true", default=False)
+    parsed = parser.parse_known_args()[0]
+    return parsed.help == True
 
 
 def first(iterable: Iterable[_T], default: Optional[_T] = None) -> _T:
@@ -51,8 +61,6 @@ class _Argument:
 @dataclass
 class DataclassConfig:
     func: Callable
-    positional_dataclasses: tuple[type[DataclassInstance], ...]
-    keyword_dataclasses: dict[str, type[DataclassInstance]]
 
 class WithArgparse:
     ignore_rename_sequences: set[str]
@@ -67,11 +75,14 @@ class WithArgparse:
     remaining_args: list[str]
 
     func: Callable
-    dataclass: Optional[DataclassConfig]
+    func_type: Literal["attrs", "dataclass", "plain"]
+    strict: bool
 
     def __init__(
         self,
-        func_or_dataclass: Union[Callable, DataclassConfig],
+        func: Callable,
+        func_type: Literal["attrs", "dataclass", "plain"],
+        strict: bool,
         aliases: Optional[Mapping[str, Sequence[str]]] = None,
         ignore_rename: Optional[set[str]] = None,
         ignore_keys: Optional[set[str]] = None,
@@ -99,18 +110,14 @@ class WithArgparse:
         self.remaining_args = []
         self.partial_parse_pass_remaining_args = partial_parse_pass_remaining_args or False
         self.on_help = on_help
+        self.add_help = add_help
 
-        if isinstance(func_or_dataclass, DataclassConfig):
-            self.dataclass = func_or_dataclass
-            self.func = func_or_dataclass.func
-        else:
-            self.func = func_or_dataclass
-            self.dataclass = None
+        self.func = func
+        self.func_type = func_type
+        self.strict = strict
+        self._help_caught = False
 
-        self.argparse = ArgumentParser(
-            add_help=add_help,
-            conflict_handler="resolve" if on_help is not None else "error"
-        )
+        self._reset_argparse()
 
         if on_help is not None:
             self.argparse.add_argument("-h", "--help", action="store_true", dest="_help")
@@ -130,6 +137,17 @@ class WithArgparse:
         logger.debug(f"Registering post parse type conversion for {key}: {func.__name__} ({func})")
         self.post_parse_type_conversions[key].append(func)
 
+    def _parser_parse(
+        self,
+        parser: argparse.ArgumentParser,
+        args: Optional[Sequence[str]] = None,
+        partial_parse: bool = False,
+    ) -> tuple[argparse.Namespace, list[str]]:
+        if partial_parse:
+            return parser.parse_known_args(args)
+        else:
+            return parser.parse_args(args), []
+
     def _argparse_parse(self):
         if self.partial_parse:
             namespace, self.remaining_args = self.argparse.parse_known_args()
@@ -140,32 +158,108 @@ class WithArgparse:
                 self.on_help(self)
         return namespace
 
+    def _print_usage(self, parser: argparse.ArgumentParser | OrderedDict[str, argparse.ArgumentParser], short: bool = False):
+        if isinstance(parser, argparse.ArgumentParser):
+            if short:
+                parser.print_usage()
+            else:
+                parser.print_help()
+        else:
+            if len(parser) == 1:
+                self._print_usage(first(parser.values()), short=short)
+                return
+            usage = ""
+            for field_name in parser.keys():
+                formatted_usage_or_help = parser[field_name].format_usage() if short else parser[field_name].format_help()
+                usage += "--- help for field name %s ---\n %s\n\n" % (field_name, formatted_usage_or_help)
+            first(parser.values()).exit(2, usage)
+
     def _call_dataclass(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
-        if args:
-            raise ValueError("Positional argument overrides are not supported, yet")
-        if self.dataclass is None:
-            raise ValueError("self.dataclass cannot be None")
+        """
+        This function identifies the dataclass function arguments inside this function,
+        parses these and calls the configured function with the parsed argument dataclasses
 
-        positional_dataclasses = self.dataclass.positional_dataclasses or tuple()
-        keyword_dataclasses = self.dataclass.keyword_dataclasses or dict()
-        dataclasses_to_process = [*positional_dataclasses, *keyword_dataclasses.values()]
+        Args:
+             args: Positional arguments to call the function with
+             kwargs: Keyword-only arguments to call the function with
 
-        for klass in dataclasses_to_process:
-            field_hints = typing.get_type_hints(klass)
-            for field in dataclasses.fields(klass):
+        """
+        signature = inspect.getfullargspec(self.func)
+        if signature.varargs:
+            raise TypeError("Variational positional arguments are not supported at the moment")
+        if signature.varkw and self.strict:
+            raise TypeError("Variational keyword arguments are not supported in strict mode")
+        if self.strict and len(args) > 0:
+            raise TypeError("In strict mode, providing positional arguments is unsupported")
+        if self.strict and len(kwargs) > 0:
+            raise TypeError("In strict mode, providing keyword arguments is unsupported")
+
+        if len(args) > len(signature.args):
+            raise TypeError(f"Received more positional arguments ({len(args)}) to call {self.func!r} than this function receives: {len(signature.args)}")
+
+        help_called = _help_called()
+        call_dataclasses = OrderedDict()
+        call_args = ()
+        call_kw_only_args = dict(kwargs)
+        call_order = ()
+
+        if len(args) > 0:
+            call_args += tuple(args)
+
+        for i, arg_name in enumerate(signature.args):
+            if i < len(call_args):
+                # this arg was provided as a positional argument, no need to get its type signature or
+                continue
+            if arg_name in call_kw_only_args:
+                # this arg was provided as a keyword argument, similar logic applies
+                continue
+            if arg_name not in signature.annotations:
+                raise TypeError(
+                    f"Function {self.func!r} must be strongly typed, "
+                    f"however has no no type annotation for field {arg_name!r}"
+                )
+            arg_type = signature.annotations[arg_name]
+            if isinstance(arg_type, str):
+                arg_type = typing.get_type_hints(self.func)[arg_name]
+            if not is_dataclass(arg_type):
+                raise TypeError(f"Field {arg_name!r} must be a dataclass instance, but is {arg_type!r}")
+            call_dataclasses[arg_name] = (arg_type, "positional")
+            call_order += (arg_name,)
+
+        for arg_name in signature.kwonlyargs:
+            if arg_name in call_kw_only_args:
+                continue
+
+            if arg_name not in signature.annotations:
+                raise TypeError(
+                    f"Function {self.func!r} must be strongly typed, "
+                    f"however has no no type annotation for field {arg_name!r}"
+                )
+            arg_type = signature.annotations[arg_name]
+            if isinstance(arg_type, str):
+                arg_type = typing.get_type_hints(self.func)[arg_name]
+            if not is_dataclass(arg_type):
+                raise TypeError(f"Field {arg_name!r} must be a dataclass instance, but is {arg_type!r}")
+
+            call_dataclasses[arg_name] = (arg_type, "keyword-only")
+            call_order += (arg_name,)
+
+        known_parser_args = defaultdict(set)
+
+        call_argparse = OrderedDict()
+        for arg_name, (arg_type, fn_arg_type) in call_dataclasses.items():
+            self.reset()
+            field_hints = typing.get_type_hints(arg_type)
+            for field in dataclasses.fields(arg_type):
                 field_required = field.default is MISSING
                 field_default = field.default if not field_required else None
                 field_type = field.type
                 field_help = None
                 if isinstance(field_type, str):
-                    field_type = typing.cast(type, field_hints.get(field.name))
+                    field_type = field_hints.get(field.name)
                 if field.metadata is not None and "help" in field.metadata:
                     field_help = str(field.metadata["help"])
 
-                # known_types = {type, Literal, GenericAlias, UnionType}
-                # if type(field_type) not in known_types and typing.get_origin(field_type) not in known_types:
-                #     raise ValueError(f"Cannot determine type of {field.name}, got {field_type} {type(field_type)}")
-                # raises on typing.Optional[typing.Literal['epsilon', 'v_prediction']]
                 self._setup_argument(
                     field.name,
                     field_type,
@@ -174,38 +268,66 @@ class WithArgparse:
                     field_help,
                 )
 
-        parsed_args = self._argparse_parse()
-        args_dict = self._apply_name_mapping(parsed_args.__dict__, None)
-        args_dict = self._apply_post_parse_conversions(args_dict, dict())
+                known_parser_args[field.name].add(arg_type.__name__)
+            call_argparse[arg_name] = self.argparse
 
-        pos: tuple[Any, ...] = tuple()
-        keywords: MutableMapping[str, Any] = dict()
-        for i, klass in enumerate(positional_dataclasses):
-            klass_args = dict()
-            for field in dataclasses.fields(klass):
-                klass_args[field.name] = args_dict[field.name]
+        invalid_field_names = []
+        for field_name, arg_names in known_parser_args.items():
+            if len(arg_names) > 1:
+                invalid_field_names.append((field_name, arg_names))
 
-            pos = pos + (klass(**klass_args),)
+        if len(invalid_field_names) > 0:
+            msg = "Function arguments of %s define overriding argument values: \n" % (self.func.__name__,)
+            for (field_name, arg_names) in invalid_field_names:
+                msg += (" - %s defined in %s\n" % (", ".join(arg_names), "\n"))
+            raise ValueError(msg)
 
-        for name, klass in keyword_dataclasses.items():
-            klass_args = dict()
-            for field in dataclasses.fields(klass):
-                klass_args[field.name] = args_dict[field.name]
+        if _help_called():
+            self._print_usage(call_argparse, False)
+            sys.exit(2)
 
-            keywords[name] = klass(**klass_args)
+        argv = sys.argv[1:]
+        call_values = {}
+        for arg_name in call_order:
+            parser = call_argparse[arg_name]
 
-        if self.partial_parse_pass_remaining_args:
-            keywords["_args"] = self.remaining_args
+            try:
+                namespace, argv = parser.parse_known_args(argv)
+            except argparse.ArgumentError as err:
+                if err.message.startswith("the following arguments are required:"):
+                    # todo: the user missed arguments, print our own summary
+                    self._print_usage(call_argparse, short=True)
+                    sys.exit(2)
+                else:
+                    parser.error(err.message)
+            args_dict = self._apply_name_mapping(namespace.__dict__, None)
+            args_dict = self._apply_post_parse_conversions(args_dict, dict())
+            arg_type, fn_arg_type = call_dataclasses[arg_name]
+            arg_value = arg_type(**args_dict)
 
-        return self.func(*pos, **keywords, **kwargs)
+            if fn_arg_type == "positional":
+                call_args += (arg_value,)
+            else:
+                call_kw_only_args[arg_name] = arg_value
+
+        if not self.partial_parse and len(argv) > 0:
+            print("the following arguments are unknown: " + " ".join(argv))
+            sys.exit(2)
+
+        if self.partial_parse_pass_remaining_args is not None:
+            raise NotImplementedError(f"Cannot pass the remaining args to field {self.partial_parse_pass_remaining_args}")
+
+        return self.func(*call_args, **call_kw_only_args)
 
     def call(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
-        if self.dataclass is not None:
-            return self._call_dataclass(args, kwargs)
-        elif self.func is not None:
+        if self.func_type == "plain":
             return self._call_func(args, kwargs)
+        elif self.func_type == "dataclass":
+            return self._call_dataclass(args, kwargs)
+        elif self.func_type == "attrs":
+            raise NotImplementedError("Calling attrs-defined functions is not supported, yet")
         else:
-            raise ValueError("self.dataclass and self.func cannot both be None")
+            raise ValueError(f"Invalid function type {self.func_type!r}")
 
 
     def _call_func(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
@@ -350,6 +472,14 @@ class WithArgparse:
                 value = conversion_func(value)
             out[key] = value
         return out
+
+    def reset(self):
+        self._reset_argparse()
+        self.argument_mapping.clear()
+        self.post_parse_type_conversions.clear()
+
+    def _reset_argparse(self):
+        self.argparse = ArgumentParser(add_help=False, exit_on_error=False)
 
     def _setup_argument(
         self,

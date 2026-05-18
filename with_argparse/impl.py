@@ -49,25 +49,16 @@ def set_enabled(enabled: bool):
 def set_config(key: str, state: bool):
     config[key] = state
 
-
 def with_dataclass(
-    *pos: type[DataclassInstance],
+    func: Callable = None,
+    *,
     allow_glob: Optional[set[str]] = None,
     partial_parse: Optional[bool] = None,
     add_help: Optional[bool] = None,
     on_help: Optional[Callable[[WithArgparse], Any]] = None,
     partial_parse_pass_remaining_args: Optional[bool] = None,
-    **kwargs: type[DataclassInstance],
+    strict: bool = True,
 ):
-    if not pos:
-        pos = tuple()
-    else:
-        pass
-        # raise NotImplementedError(
-        #   f"In the future, I would entertain the idea to get the dataclass instances from the "
-        #   f"method spec instead of specifying it again via positional or keyword arguments"
-        # )
-
     def wrapper(fn):
         @functools.wraps(fn)
         def inner(*inner_args, **inner_kwargs):
@@ -75,11 +66,9 @@ def with_dataclass(
                 return fn(*inner_args, **inner_kwargs)
 
             parser = WithArgparse(
-                DataclassConfig(
-                    fn,
-                    pos,
-                    kwargs,
-                ),
+                fn,
+                "dataclass",
+                strict=strict,
                 allow_glob=allow_glob,
                 partial_parse=partial_parse,
                 partial_parse_pass_remaining_args=partial_parse_pass_remaining_args,
@@ -88,6 +77,9 @@ def with_dataclass(
             )
             return parser.call(inner_args, inner_kwargs)
         return inner
+
+    if func is not None:
+        return wrapper(func)
     return wrapper
 
 
