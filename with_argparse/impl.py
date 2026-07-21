@@ -4,8 +4,7 @@ import typing
 from typing import Callable, Union, ParamSpec, TypeVar, overload, Optional, Mapping, _SpecialForm, Any
 import warnings
 
-from with_argparse.configure_argparse import WithArgparse, DataclassConfig
-from with_argparse.types import DataclassInstance
+from with_argparse.configure_argparse import WithArgparse
 from with_argparse.setup import config
 
 try:

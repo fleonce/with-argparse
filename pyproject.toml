@@ -5,8 +5,11 @@ version = "1.0.5rc4"
 license = {text = "Apache 2.0"}
 readme = "README.md"
 
-dependencies = ["typing-extensions>=4.15.0"]
-requires-python = ">= 3.8"
+dependencies = [
+    "attrs>=26.1.0",
+    "typing-extensions>=4.15.0",
+]
+requires-python = ">= 3.12"
 
 authors = [
     { name = "Moritz Hennen", email = "mail@fleance.de" }
@@ -33,3 +36,11 @@ repository = "https://github.com/fleonce/with-argparse/"
 
 [tool.setuptools]
 packages = ["with_argparse"]
+
+[tool.uv]
+package = true
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.0",
+]

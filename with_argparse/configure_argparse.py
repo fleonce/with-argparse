@@ -15,9 +15,11 @@ from typing import (
     Any, Set, List, get_origin, get_args, Union, Literal, Optional, Sequence, TypeVar, Iterable,
     Callable, MutableMapping, Mapping,
 )
+
+import attrs
 from typing_extensions import Self
 
-from with_argparse.types import DataclassInstance
+from with_argparse.main import _internal_global_state, ParseArgs
 from with_argparse.utils import flatten, glob_to_paths
 from with_argparse.setup import config
 
@@ -30,6 +32,11 @@ _T = TypeVar("_T")
 logger = logging.getLogger("with_argparse")
 _NO_DEFAULT = None
 
+
+class MissingArgument:
+    __slots__ = ()
+
+MISSING_ARG = MissingArgument()
 
 def _help_called():
     parser = ArgumentParser(add_help=False)
@@ -47,7 +54,7 @@ def first(iterable: Iterable[_T], default: Optional[_T] = None) -> _T:
         raise
 
 
-@dataclass
+@attrs.define
 class _Argument:
     name: str
     type: type | Callable[[str], Any]
@@ -56,6 +63,25 @@ class _Argument:
     nargs: bool
     choices: Optional[Sequence[Any]] = None
     action: Optional[str] = None
+
+
+def _infer_func_type(func: Callable, parse_args: ParseArgs) -> Literal["plain", "attrs", "dataclass"]:
+    signature = inspect.getfullargspec(func)
+
+    for arg in signature.args + signature.kwonlyargs:
+        if arg in parse_args.ignore:
+            continue
+
+        arg_type = signature.annotations[arg]
+        if isinstance(arg_type, str):
+            arg_type = typing.get_type_hints(func)[arg]
+
+        if attrs.has(arg_type):
+            return "attrs"
+        elif is_dataclass(arg_type):
+            return "dataclass"
+
+    return "plain"
 
 
 @dataclass
@@ -81,8 +107,8 @@ class WithArgparse:
     def __init__(
         self,
         func: Callable,
-        func_type: Literal["attrs", "dataclass", "plain"],
-        strict: bool,
+        func_type: Literal["attrs", "dataclass", "plain", "infer"] = "infer",
+        strict: bool = True,
         aliases: Optional[Mapping[str, Sequence[str]]] = None,
         ignore_rename: Optional[set[str]] = None,
         ignore_keys: Optional[set[str]] = None,
@@ -91,16 +117,22 @@ class WithArgparse:
         partial_parse: Optional[bool] = None,
         partial_parse_pass_remaining_args: Optional[bool] = None,
         add_help: Optional[bool] = None,
-        on_help: Optional[Callable[[Self], Any]] = None
+        on_help: Optional[Callable[[Self], Any]] = None,
+        parse_args: ParseArgs | None = None,
     ):
         super().__init__()
+
+        if parse_args is None:
+            parse_args = ParseArgs(set())
+
+        if func_type == "infer":
+            func_type = _infer_func_type(func, parse_args)
 
         if add_help is None:
             add_help = config["add_help"]
 
         self.ignore_rename_sequences = ignore_rename or set()
         self.ignore_arg_keys = ignore_keys or set()
-        self.argument_mapping = dict()
         self.argument_aliases = dict(aliases or dict())
         self.post_parse_type_conversions = dict()
         self.allow_glob = allow_glob or set()
@@ -117,6 +149,7 @@ class WithArgparse:
         self.strict = strict
         self._help_caught = False
 
+        self.parse_args = parse_args
         self._reset_argparse()
 
         if on_help is not None:
@@ -173,6 +206,199 @@ class WithArgparse:
                 formatted_usage_or_help = parser[field_name].format_usage() if short else parser[field_name].format_help()
                 usage += "--- help for field name %s ---\n %s\n\n" % (field_name, formatted_usage_or_help)
             first(parser.values()).exit(2, usage)
+
+    def _call_attrs(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
+        """
+        This function identifies the attrs function arguments inside this function,
+        parses these and calls the configured function with the parsed argument attrs instances
+
+        Args:
+             args: Positional arguments to call the function with
+             kwargs: Keyword-only arguments to call the function with
+
+        """
+        orig_args = args
+        orig_kwargs = kwargs
+
+        signature = inspect.getfullargspec(self.func)
+        if signature.varargs:
+            raise TypeError("Variational positional arguments are not supported")
+        if signature.varkw and self.strict:
+            raise TypeError("Variational keyword arguments are not supported")
+        if self.strict and len(args) > 0:
+            raise TypeError("In strict mode, providing positional arguments is unsupported")
+        if self.strict and len(kwargs) > 0:
+            raise TypeError("In strict mode, providing keyword arguments is unsupported")
+
+        if len(args) > len(signature.args):
+            raise TypeError(f"Received more positional arguments ({len(args)}) to call {self.func!r} than this function receives: {len(signature.args)}")
+
+        args_to_parse = OrderedDict()
+
+        call_args = {}
+        registered_args = {}
+        registering_fields = defaultdict(set)
+
+        for pos, name in enumerate(signature.args + signature.kwonlyargs):
+            if pos < len(orig_args):
+                # this arg is provided as an argument already
+                call_args[name] = orig_args[pos]
+                continue
+            elif name in orig_kwargs:
+                # this arg is provided as an argument already
+                call_args[name] = orig_kwargs[name]
+                continue
+
+            if name not in signature.annotations:
+                raise TypeError(
+                    f"Function {self.func!r} must be strongly typed. "
+                    f"The non-provided argument {name!r} is missing a type signature."
+                )
+
+            typ = signature.annotations[name]
+            if isinstance(typ, str):
+                typ = typing.get_type_hints(self.func)[name]
+
+            if self.func_type == "plain":
+                if attrs.has(typ) or is_dataclass(typ):
+                    raise TypeError(
+                        f"In plain mode, arguments cannot be dataclasses. "
+                        f"Field {name!r} of function {self.func!r} is an attrs or dataclass type: {typ!r}."
+                    )
+
+            elif self.func_type == "dataclass":
+                if not is_dataclass(typ):
+                    raise TypeError(
+                        f"Field {name!r} of function {self.func!r} must be a dataclass instance, got {typ}"
+                    )
+            elif self.func_type == "attrs":
+                if not attrs.has(typ):
+                    raise TypeError(
+                        f"Field {name!r} of function {self.func!r} must be an attrs instance, got {typ}"
+                    )
+            args_to_parse[name] = typ
+
+        if self.func_type == "plain":
+            raise NotImplementedError("plain mode")
+        else:
+            for arg, typ in args_to_parse.items():
+                # at this point, typ is a dataclass or attrs instance, depending on self.func_type
+                fields = dataclasses.fields(typ) if self.func_type == "dataclass" else attrs.fields(typ)
+                field_hints = typing.get_type_hints(typ)
+                missing_obj = dataclasses.MISSING if self.func_type == "dataclass" else attrs.NOTHING
+                for field in fields:
+                    field_required = field.default is missing_obj
+                    field_default = field.default if not field_required else MISSING_ARG
+                    field_type = field.type
+                    if isinstance(field_type, str):
+                        field_type = field_hints.get(field.name)
+
+                    field_help = None
+                    if field.metadata is not None and "help" in field.metadata:
+                        field_help = str(field.metadata["help"])
+
+                    field_aliases = None
+                    if field.metadata is not None and "aliases" in field.metadata:
+                        field_aliases = field.metadata["aliases"]
+
+                    field_args = (
+                        field.name,
+                        field_type,
+                        field_default,
+                        field_required,
+                        field_help,
+                        field_aliases,
+                        field.kw_only,
+                    )
+                    if field.name in registered_args and registered_args[field.name] != field_args:
+                        previous_registrations = registering_fields[field.name]
+                        previous_registrations = list(sorted(previous_registrations, key=str))
+
+                        other_args = registered_args[field.name]
+                        mismatch_reasons = []
+                        if field_args[1] != other_args[1]:
+                            mismatch_reasons.append(f"type mismatch: {field_args[1]!r} vs {other_args[1]!r}")
+                        if field_args[2] != other_args[2]:
+                            mismatch_reasons.append(f"default value mismatch: {field_args[2]!r} vs {other_args[2]!r}")
+                        if field_args[3] != field_args[3]:
+                            mismatch_reasons.append(f"required value mismatch: {field_args[3]!r} vs {other_args[3]!r}")
+                        if field_args[4] != field_args[4]:
+                            mismatch_reasons.append(f"help mismatch: {field_args[4]!r} vs {other_args[4]!r}")
+                        if field_args[5] != field_args[5]:
+                            mismatch_reasons.append(f"aliases mismatch: {field_args[5]!r} vs {other_args[5]!r}")
+
+                        if len(mismatch_reasons) == 0:
+                            mismatch_reasons = ["unknown reason"]
+                        mismatch_reason = ",".join(mismatch_reasons)
+
+                        raise TypeError(
+                            f"Mismatch in overlapping argument {field.name!r}: "
+                            f"Previous instances ({previous_registrations}) have the following differences: "
+                            f"{mismatch_reason}"
+                        )
+
+                    self._setup_argument(
+                        field.name,
+                        field_type,
+                        field_default,
+                        field_required,
+                        field_help,
+                        field_aliases,
+                    )
+
+                    registered_args[field.name] = field_args
+                    registering_fields[field.name].add(typ)
+
+        try:
+            namespace, remaining = self.argparse.parse_known_args()
+            if namespace.help:  # help was called
+                self._handle_help_call()
+
+            # todo: use copy of internal state within this object
+            if len(remaining) > 0 and not _internal_global_state().partial:
+                remaining_str = " ".join(map(repr, remaining))
+                raise argparse.ArgumentError(
+                    argument=None,
+                    message=f"failed to parse the following args: {remaining_str}"
+                )
+        except argparse.ArgumentError as err:
+            if err.message.startswith("the following arguments are required:"):
+                self._print_usage(self.argparse, short=True)
+                sys.exit(2)
+            else:
+                self.argparse.error(err.message)
+
+        args_dict = self._apply_post_parse_conversions(namespace.__dict__, dict())
+
+        if self.func_type in {"attrs", "dataclass"}:
+            registering_types = defaultdict(set)
+            for field_name, field_types in registering_fields.items():
+                for field_type in field_types:
+                    registering_types[field_type].add(field_name)
+
+            call_args = {}
+            for arg, typ in args_to_parse.items():
+                field_kwargs = {}
+                for field_name in registering_types[typ]:
+                    field_value = args_dict.get(field_name)
+                    if field_value is not MISSING_ARG:
+                        field_kwargs[field_name] = field_value
+
+                # instantiate the attrs/dataclass type with its keyword arguments
+                typ_value = typ(**field_kwargs)
+
+                call_args[arg] = typ_value
+
+            positional_args = ()
+            kwonly_args = {}
+            for arg in signature.args:
+                positional_args += (call_args.pop(arg),)
+            for arg in signature.kwonlyargs:
+                kwonly_args[arg] = call_args.pop(arg)
+
+            return self.func(*positional_args, **kwonly_args)
+        raise NotImplementedError(self.func_type)
+
 
     def _call_dataclass(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
         """
@@ -300,7 +526,6 @@ class WithArgparse:
                     sys.exit(2)
                 else:
                     parser.error(err.message)
-            args_dict = self._apply_name_mapping(namespace.__dict__, None)
             args_dict = self._apply_post_parse_conversions(args_dict, dict())
             arg_type, fn_arg_type = call_dataclasses[arg_name]
             arg_value = arg_type(**args_dict)
@@ -325,7 +550,7 @@ class WithArgparse:
         elif self.func_type == "dataclass":
             return self._call_dataclass(args, kwargs)
         elif self.func_type == "attrs":
-            raise NotImplementedError("Calling attrs-defined functions is not supported, yet")
+            return self._call_attrs(args, kwargs)
         else:
             raise ValueError(f"Invalid function type {self.func_type!r}")
 
@@ -425,8 +650,7 @@ class WithArgparse:
                     )
                 overriden_kwargs[field_name] = kwargs[field_name]
 
-        args_dict = self._apply_name_mapping(parsed_args.__dict__, args_dict)
-        args_dict = self._apply_post_parse_conversions(args_dict, args_dict)
+        args_dict = self._apply_post_parse_conversions(parsed_args.__dict__, args_dict)
 
         for key, value in overriden_kwargs.items():
             if key in args_dict:
@@ -440,19 +664,6 @@ class WithArgparse:
             args_dict["_args"] = self.remaining_args
 
         return self.func(**args_dict)
-
-    def _apply_name_mapping(
-        self,
-        parsed_args: Mapping[str, Any],
-        out: MutableMapping[str, Any] | None
-    ) -> MutableMapping[str, Any]:
-        out = out or dict()
-        for key, value in parsed_args.items():
-            if key in self.argument_mapping:
-                out[self.argument_mapping[key]] = value
-            else:
-                out[key] = value
-        return out
 
     def _apply_post_parse_conversions(
         self,
@@ -475,11 +686,20 @@ class WithArgparse:
 
     def reset(self):
         self._reset_argparse()
-        self.argument_mapping.clear()
         self.post_parse_type_conversions.clear()
 
     def _reset_argparse(self):
         self.argparse = ArgumentParser(add_help=False, exit_on_error=False)
+        self.argparse.add_argument(
+            "--help", "-h",
+            action="store_true", default=False, required=False, help="show this help message and exit"
+        )
+
+    def _handle_help_call(self):
+        if self.parse_args.help_strategy != "silent":
+            self._print_usage(self.argparse, False)
+        if self.parse_args.help_strategy == "print-and-exit":
+            sys.exit(2)
 
     def _setup_argument(
         self,
@@ -488,9 +708,10 @@ class WithArgparse:
         arg_default: Any,
         arg_required: bool,
         arg_help: Optional[str],
+        arg_aliases: Optional[list[str]],
     ):
-        if arg_name.startswith("_"):
-            return
+        if not arg_aliases:
+            arg_aliases = []
 
         args = self._dispatch_argparse_key_type(
             arg_name,
@@ -517,32 +738,11 @@ class WithArgparse:
         if arg_help:
             argparse_kwargs["help"] = arg_help
 
-        aliases = self.argument_aliases.get(arg_name, list())
         self.argparse.add_argument(
             "--" + args.name,
-            *aliases,
+            *arg_aliases,
             **argparse_kwargs
         )
-
-
-    def _register_substitution(
-        self,
-        arg_name: str,
-        replacement: str,
-    ) -> str:
-        """
-        :param arg_name:
-        :param replacement:
-        :return: replacement
-        """
-        logger.debug(f"Registering substitution for {arg_name} with {replacement}")
-        self.argument_mapping[replacement] = arg_name
-        return replacement
-
-    def _resolve_orig_arg_name(self, arg_name: str) -> str:
-        while arg_name in self.argument_mapping:
-            arg_name = self.argument_mapping[arg_name]
-        return arg_name
 
     def _dispatch_argparse_key_type(
         self,
@@ -592,21 +792,11 @@ class WithArgparse:
             return inner
 
         origin_arg_type = get_origin(arg_type)
-        if (
-            origin_arg_type
-            and origin_arg_type in SEQUENCE_TYPES
-            and arg_name not in self.ignore_rename_sequences
-            and arg_name.endswith("s")
-        ):
-            arg_name = self._register_substitution(arg_name, arg_name[:-1])
-
         if arg_type == bool:
             if arg_default is not None and not isinstance(arg_default, bool):
                 raise ValueError(f"Default value for {arg_name} is of type {type(arg_default)}, but should be bool")
 
             arg_default = arg_default if arg_default is not None else False
-            if arg_default:
-                arg_name = self._register_substitution(arg_name, "no_" + arg_name)
 
             store_action = "store_true" if not arg_default else "store_false"
             return _Argument(
@@ -630,8 +820,7 @@ class WithArgparse:
             )
 
             if origin_arg_type is not list:
-                orig_arg_name = self._resolve_orig_arg_name(arg_name)
-                self._register_post_parse_type_conversion(orig_arg_name, origin_arg_type)
+                self._register_post_parse_type_conversion(arg_name, origin_arg_type)
 
             return _Argument(
                 inner.name,
@@ -737,7 +926,7 @@ class WithArgparse:
                 "with inner types " + str(inner_arg_types)
             )
         else:
-            orig_arg_name = self._resolve_orig_arg_name(arg_name)
+            orig_arg_name = arg_name
             if (
                 arg_type in {Path, str}
                 and orig_arg_name in self.allow_glob

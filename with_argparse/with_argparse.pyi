@@ -1,6 +1,6 @@
 from typing import Callable, Protocol, Any, TypeVar, Literal, Optional, overload
 
-from with_argparse.configure_argparse import WithArgparse
+from with_argparse.configure_argparse import WithArgparse, ParseArgs
 
 T = TypeVar("T")
 
@@ -15,6 +15,18 @@ def with_dataclass(func: FunctionWithSpecificReturnType[T], /) -> StrictArgParse
     ...
 
 @overload
+def with_attrs(func: FunctionWithSpecificReturnType[T], /) -> StrictArgParsedFunction[T]:
+    ...
+
+@overload
+def with_attrs(
+    *,
+    parse_args: ParseArgs | None = None,
+    strict: Literal[True] = True,
+) -> Callable[[FunctionWithSpecificReturnType[T]], StrictArgParsedFunction[T]]:
+    ...
+
+@overload
 def with_dataclass(
     allow_glob: Optional[set[str]] = None,
     partial_parse: Optional[bool] = None,
@@ -22,4 +34,4 @@ def with_dataclass(
     on_help: Optional[Callable[[WithArgparse], Any]] = None,
     partial_parse_pass_remaining_args: Optional[bool] = None,
     strict: Literal[True] = True,
-) -> StrictArgParsedFunction[T]: ...
+) -> Callable[[FunctionWithSpecificReturnType[T]], StrictArgParsedFunction[T]]: ...
