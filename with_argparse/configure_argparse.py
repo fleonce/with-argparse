@@ -16,7 +16,6 @@ from typing import (
     Any, Set, List, get_origin, get_args, Union, Literal, Optional, Sequence, TypeVar, Iterable,
     Callable, MutableMapping, Mapping,
 )
-from zipfile import sizeCentralDir
 
 import attrs
 from typing_extensions import Self
@@ -212,7 +211,7 @@ class WithArgparse:
                 usage += "--- help for field name %s ---\n %s\n\n" % (field_name, formatted_usage_or_help)
             first(parser.values()).exit(2, usage)
 
-    def _call_attrs(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
+    def _call_any(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
         """
         This function identifies the attrs function arguments inside this function,
         parses these and calls the configured function with the parsed argument attrs instances
@@ -393,6 +392,8 @@ class WithArgparse:
             if _help_called():
                 self._handle_help_call()
             namespace, remaining = self.argparse.parse_known_args()
+            for hook in _internal_global_state().parse_hooks:
+                hook(namespace, remaining)
 
             # todo: use copy of internal state within this object
             if len(remaining) > 0 and not _internal_global_state().partial:
@@ -590,7 +591,7 @@ class WithArgparse:
         return self.func(*call_args, **call_kw_only_args)
 
     def call(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
-        return self._call_attrs(args, kwargs)
+        return self._call_any(args, kwargs)
 
     def _call_func(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
         info = inspect.getfullargspec(self.func)

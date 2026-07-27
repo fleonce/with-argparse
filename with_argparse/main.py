@@ -42,7 +42,7 @@ class ParseArgs:
 @attrs.define
 class partial_argparse:  # noqa
     state: bool = attrs.field(init=False)
-    remaining: list[str] = attrs.field(init=False)
+    remainder: list[str] = attrs.field(init=False, factory=list)
 
     def __enter__(self) -> Self:
         self.state = _global_state.partial
@@ -53,12 +53,14 @@ class partial_argparse:  # noqa
     def __call__(self, parsed: Namespace, remaining: list[str]):
         # after hooks have been called, the remaining args are available from the
         # context manager variable
-        self.remaining = remaining
-        _global_state.parse_hooks.remove(self)
+        self.remainder = remaining
+        if self in _global_state.parse_hooks:
+            _global_state.parse_hooks.remove(self)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         _global_state.partial = self.state
-        _global_state.parse_hooks.remove(self)
+        if self in _global_state.parse_hooks:
+            _global_state.parse_hooks.remove(self)
 
     # todo: add __copy__ that does a shallow copy of this class
     #  and store those copies in the WithArgparse instances
@@ -98,17 +100,79 @@ def with_attrs[**P, T](
 
 
 def with_attrs(func: Callable | None = None, *, parse_args: ParseArgs | None = None, strict: bool = True):
+    return _with_argparse(func, parse_args=parse_args, strict=strict, func_type="attrs")
+
+@overload
+def with_dataclass[**P, T](func: Callable[P, T], /) -> Callable[[], T]:
+    ...
+
+@overload
+def with_dataclass[**P, T](
+    *,
+    parse_args: ParseArgs | None = None,
+    strict: Literal[True] = True,
+) -> Callable[[Callable[P, T]], Callable[[], T]]:
+    ...
+
+@overload
+def with_dataclass[**P, T](
+    *,
+    parse_args: ParseArgs | None = None,
+    strict: bool = False,
+) -> Callable[[Callable[P, T]], Callable[..., T]]:
+    ...
+
+
+def with_dataclass(func: Callable | None = None, *, parse_args: ParseArgs | None = None, strict: bool = True):
+    return _with_argparse(func, parse_args=parse_args, strict=strict, func_type="dataclass")
+
+
+@overload
+def with_argparse[**P, T](func: Callable[P, T], /) -> Callable[[], T]:
+    ...
+
+@overload
+def with_argparse[**P, T](
+    *,
+    parse_args: ParseArgs | None = None,
+    strict: Literal[True] = True,
+) -> Callable[[Callable[P, T]], Callable[[], T]]:
+    ...
+
+@overload
+def with_argparse[**P, T](
+    *,
+    parse_args: ParseArgs | None = None,
+    strict: bool = False,
+) -> Callable[[Callable[P, T]], Callable[..., T]]:
+    ...
+
+
+def with_argparse(func: Callable | None = None, *, parse_args: ParseArgs | None = None, strict: bool = True):
+    return _with_argparse(func, parse_args=parse_args, strict=strict, func_type="infer")
+
+
+def _with_argparse(
+    func: Callable | None = None,
+    *,
+    parse_args: ParseArgs | None = None,
+    strict: bool = True,
+    func_type: Literal["attrs", "dataclass", "plain", "infer"] = "infer",
+):
     # decorator-decorator path
 
     def decorator(decorated_func: Callable):
         @functools.wraps(decorated_func)
         def wrapper(*args, **kwargs):
+            if _internal_global_state().disabled:
+                return decorated_func(*args, **kwargs)
+
             from with_argparse.configure_argparse import WithArgparse
 
             if strict and (len(args) > 0 or len(kwargs) > 0):
                 raise TypeError("In strict mode, arguments cannot be passed to the decorated dataclass function")
 
-            wa = WithArgparse(decorated_func, "infer", strict=strict, parse_args=parse_args)
+            wa = WithArgparse(decorated_func, func_type, strict=strict, parse_args=parse_args)
             return wa.call(args, kwargs)
         return wrapper
 
@@ -116,6 +180,26 @@ def with_attrs(func: Callable | None = None, *, parse_args: ParseArgs | None = N
         return decorator
     else:
         return decorator(func)
+
+@overload
+def script_argparse[**P, T](func: Callable[P, T], /) -> T:
+    ...
+
+@overload
+def script_argparse[**P, T](
+    *,
+    parse_args: ParseArgs | None = None,
+) -> Callable[[Callable[P, T]], T]:
+    ...
+
+def script_argparse(func: Callable | None = None, *, parse_args: ParseArgs | None = None):
+    if func is None:  # parse_args was specified
+        def wrapper(decorated_func: Callable):
+            configured_argparse = with_argparse(parse_args=parse_args, strict=True)
+            return configured_argparse(decorated_func)()
+        return wrapper
+    else:
+        return with_argparse(func)()
 
 
 def script_argparse():
