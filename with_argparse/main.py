@@ -181,6 +181,7 @@ def _with_argparse(
     else:
         return decorator(func)
 
+
 @overload
 def script_argparse[**P, T](func: Callable[P, T], /) -> T:
     ...
@@ -200,7 +201,3 @@ def script_argparse(func: Callable | None = None, *, parse_args: ParseArgs | Non
         return wrapper
     else:
         return with_argparse(func)()
-
-
-def script_argparse():
-    raise NotImplementedError
