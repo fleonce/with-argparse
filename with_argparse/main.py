@@ -75,7 +75,7 @@ class no_argparse:
         _global_state.disabled = True
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        _global_state.partial = self.state
+        _global_state.disabled = self.state
 
 
 @overload
