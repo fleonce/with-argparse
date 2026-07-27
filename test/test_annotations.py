@@ -10,8 +10,8 @@ class IgnoreTest(unittest.TestCase):
             return arg
 
         with self.assertRaisesRegex(
-            ValueError,
-            "Argument [a-z]+ must have a type annotation in order to be viable for argparse"
+            TypeError,
+            "Function .+ must be strongly typed, however has no no type annotation for field '[a-z]+'"
         ):
             wrapper()
 
@@ -21,7 +21,7 @@ class IgnoreTest(unittest.TestCase):
             return arg
 
         with self.assertRaisesRegex(
-            ValueError,
-            "Argument [a-z]+ must have a type annotation in order to be viable for argparse"
+            TypeError,
+            "Function <function .+ must be strongly typed, however has no no type annotation for field '[a-z]+'"
         ):
             func()

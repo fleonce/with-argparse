@@ -1,3 +1,4 @@
+from types import GenericAlias
 import argparse
 import dataclasses
 import inspect
@@ -15,6 +16,7 @@ from typing import (
     Any, Set, List, get_origin, get_args, Union, Literal, Optional, Sequence, TypeVar, Iterable,
     Callable, MutableMapping, Mapping,
 )
+from zipfile import sizeCentralDir
 
 import attrs
 from typing_extensions import Self
@@ -72,6 +74,11 @@ def _infer_func_type(func: Callable, parse_args: ParseArgs) -> Literal["plain", 
         if arg in parse_args.ignore:
             continue
 
+        if arg not in signature.annotations:
+            raise TypeError(
+                f"Function {func!r} must be strongly typed, "
+                f"however has no no type annotation for field {arg!r}"
+            )
         arg_type = signature.annotations[arg]
         if isinstance(arg_type, str):
             arg_type = typing.get_type_hints(func)[arg]
@@ -152,8 +159,6 @@ class WithArgparse:
         self.parse_args = parse_args
         self._reset_argparse()
 
-        if on_help is not None:
-            self.argparse.add_argument("-h", "--help", action="store_true", dest="_help")
 
     def _register_mapping(self): ...
 
@@ -279,7 +284,37 @@ class WithArgparse:
             args_to_parse[name] = typ
 
         if self.func_type == "plain":
-            raise NotImplementedError("plain mode")
+            positional_defaults = signature.defaults or ()
+            non_default_positional_args = len(signature.args) - len(positional_defaults)
+            positional_defaults = (MISSING_ARG,) * non_default_positional_args + positional_defaults
+
+            arg_defaults = {
+                arg: positional_defaults[i]
+                for i, arg in enumerate(signature.args)
+            }
+            arg_defaults = arg_defaults | (signature.kwonlydefaults or {})
+
+            for arg, typ in args_to_parse.items():
+                arg_required = arg not in arg_defaults or arg_defaults[arg] is MISSING_ARG
+                arg_default = arg_defaults.get(arg, MISSING_ARG)
+
+                if arg_default is not MISSING_ARG and (
+                    (not isinstance(typ, UnionType) and not isinstance(typ, GenericAlias))
+                    or (isinstance(typ, UnionType) and all(not isinstance(typ_arg, GenericAlias) for typ_arg in typ.__args__))
+                ) and not isinstance(arg_default, typ):
+                    raise TypeError(
+                        f"Invalid default value for argument {arg!r}: "
+                        f"got {arg_default!r} ({type(arg_default)!r}) for type {typ!r}"
+                    )
+
+                self._setup_argument(
+                    arg,
+                    typ,
+                    arg_default,
+                    arg_required,
+                    None,
+                    self.parse_args.aliases.get(arg, None)
+                )
         else:
             for arg, typ in args_to_parse.items():
                 # at this point, typ is a dataclass or attrs instance, depending on self.func_type
@@ -292,6 +327,11 @@ class WithArgparse:
                     field_type = field.type
                     if isinstance(field_type, str):
                         field_type = field_hints.get(field.name)
+                    if field_type is None:
+                        raise TypeError(
+                            f"Invalid field type {type(field_type)!r} "
+                            f"for function argument {arg!r} and field name {field.name!r}"
+                        )
 
                     field_help = None
                     if field.metadata is not None and "help" in field.metadata:
@@ -350,9 +390,9 @@ class WithArgparse:
                     registering_fields[field.name].add(typ)
 
         try:
-            namespace, remaining = self.argparse.parse_known_args()
-            if namespace.help:  # help was called
+            if _help_called():
                 self._handle_help_call()
+            namespace, remaining = self.argparse.parse_known_args()
 
             # todo: use copy of internal state within this object
             if len(remaining) > 0 and not _internal_global_state().partial:
@@ -362,11 +402,9 @@ class WithArgparse:
                     message=f"failed to parse the following args: {remaining_str}"
                 )
         except argparse.ArgumentError as err:
-            if err.message.startswith("the following arguments are required:"):
-                self._print_usage(self.argparse, short=True)
-                sys.exit(2)
-            else:
-                self.argparse.error(err.message)
+            self._print_usage(self.argparse, short=False)
+            print("error:", err.message, file=sys.stderr)
+            sys.exit(2)
 
         args_dict = self._apply_post_parse_conversions(namespace.__dict__, dict())
 
@@ -376,7 +414,6 @@ class WithArgparse:
                 for field_type in field_types:
                     registering_types[field_type].add(field_name)
 
-            call_args = {}
             for arg, typ in args_to_parse.items():
                 field_kwargs = {}
                 for field_name in registering_types[typ]:
@@ -388,17 +425,25 @@ class WithArgparse:
                 typ_value = typ(**field_kwargs)
 
                 call_args[arg] = typ_value
+        else:
+            for arg, value in args_dict.items():
+                if arg in call_args:
+                    raise ValueError(f"Illegal state, argument {arg!r} is already registered as a call arg: {call_args!r}")
 
-            positional_args = ()
-            kwonly_args = {}
-            for arg in signature.args:
-                positional_args += (call_args.pop(arg),)
-            for arg in signature.kwonlyargs:
-                kwonly_args[arg] = call_args.pop(arg)
+                call_args[arg] = value
 
-            return self.func(*positional_args, **kwonly_args)
-        raise NotImplementedError(self.func_type)
+        positional_args = ()
+        kwonly_args = {}
+        for arg, val in call_args.items():
+            if isinstance(val, MissingArgument):
+                raise TypeError("Invalid state")
 
+        for arg in signature.args:
+            positional_args += (call_args.pop(arg),)
+        for arg in signature.kwonlyargs:
+            kwonly_args[arg] = call_args.pop(arg)
+
+        return self.func(*positional_args, **kwonly_args)
 
     def _call_dataclass(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
         """
@@ -545,15 +590,7 @@ class WithArgparse:
         return self.func(*call_args, **call_kw_only_args)
 
     def call(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
-        if self.func_type == "plain":
-            return self._call_func(args, kwargs)
-        elif self.func_type == "dataclass":
-            return self._call_dataclass(args, kwargs)
-        elif self.func_type == "attrs":
-            return self._call_attrs(args, kwargs)
-        else:
-            raise ValueError(f"Invalid function type {self.func_type!r}")
-
+        return self._call_attrs(args, kwargs)
 
     def _call_func(self, args: Sequence[Any], kwargs: Mapping[str, Any]):
         info = inspect.getfullargspec(self.func)
@@ -738,6 +775,13 @@ class WithArgparse:
         if arg_help:
             argparse_kwargs["help"] = arg_help
 
+        if "action" not in argparse_kwargs:
+            argparse_kwargs["metavar"] = (
+                arg_type.__name__
+                if hasattr(arg_type, "__name__")
+                else repr(arg_type)
+            )
+
         self.argparse.add_argument(
             "--" + args.name,
             *arg_aliases,
@@ -793,7 +837,7 @@ class WithArgparse:
 
         origin_arg_type = get_origin(arg_type)
         if arg_type == bool:
-            if arg_default is not None and not isinstance(arg_default, bool):
+            if arg_default is not MISSING_ARG and not isinstance(arg_default, bool):
                 raise ValueError(f"Default value for {arg_name} is of type {type(arg_default)}, but should be bool")
 
             arg_default = arg_default if arg_default is not None else False
@@ -899,7 +943,6 @@ class WithArgparse:
             if len(inner_arg_types) < 2:
                 raise ValueError()
 
-            warnings.warn(f"Using type unions in with_argparse is early beta and subject to change in the future", stacklevel=2)
             inner_types = [inner.type for inner in inner_arg_types]
             def first_working_inner_type(inp):
                 for inner_type in inner_types:

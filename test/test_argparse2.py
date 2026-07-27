@@ -13,7 +13,11 @@ class ArgParseTestCase(unittest.TestCase):
 
         @with_dataclass
         def func(args: A):
-            return args
+            return args.field1
 
         with sys_args():
-            func()
+            with self.assertRaises(SystemExit):
+                func()
+
+        with sys_args(field1="42"):
+            self.assertEqual(42, func())

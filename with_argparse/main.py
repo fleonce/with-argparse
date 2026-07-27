@@ -1,8 +1,10 @@
+from __future__ import annotations
 import argparse
 import functools
 import inspect
+import pathlib
 from argparse import Namespace
-from typing import Callable, TypeVar, overload, Literal, Self
+from typing import Callable, TypeVar, overload, Literal, Self, ParamSpec, Any
 
 import attrs
 
@@ -23,9 +25,18 @@ def _internal_global_state():
 
 @attrs.define
 class ParseArgs:
-    ignore: set[str]
+    ignore: set[str] = attrs.field(factory=set)
+    aliases: dict[str, list[str]] = attrs.field(factory=dict)
+    parse_functions: dict[str, Callable[[str], Any]] = attrs.field(factory=dict)
 
-    help_strategy: Literal["print-and-exit", "print-and-continue", "silent"] = "exit"
+    help_strategy: Literal["print-and-exit", "print-and-continue", "silent"] = "print-and-exit"
+
+    def __attrs_post_init__(self):
+        if self.parse_functions:
+            raise TypeError(
+                f"Parsing functions for the following arguments were specified, "
+                f"however parse support has been removed. Please use attrs.Converter as an alternative."
+            )
 
 
 @attrs.define
@@ -66,23 +77,23 @@ class no_argparse:
 
 
 @overload
-def with_attrs[T](func: Callable[..., T], /) -> Callable[[], T]:
+def with_attrs[**P, T](func: Callable[P, T], /) -> Callable[[], T]:
     ...
 
 @overload
-def with_attrs[T](
+def with_attrs[**P, T](
     *,
     parse_args: ParseArgs | None = None,
     strict: Literal[True] = True,
-) -> Callable[[Callable[..., T]], Callable[[], T]]:
+) -> Callable[[Callable[P, T]], Callable[[], T]]:
     ...
 
 @overload
-def with_attrs[T](
+def with_attrs[**P, T](
     *,
     parse_args: ParseArgs | None = None,
     strict: bool = False,
-) -> Callable[[Callable[..., T]], Callable[..., T]]:
+) -> Callable[[Callable[P, T]], Callable[..., T]]:
     ...
 
 
@@ -97,8 +108,8 @@ def with_attrs(func: Callable | None = None, *, parse_args: ParseArgs | None = N
             if strict and (len(args) > 0 or len(kwargs) > 0):
                 raise TypeError("In strict mode, arguments cannot be passed to the decorated dataclass function")
 
-            wa = WithArgparse(decorated_func, "attrs", strict=strict)
-            return wa.call((), {})
+            wa = WithArgparse(decorated_func, "infer", strict=strict, parse_args=parse_args)
+            return wa.call(args, kwargs)
         return wrapper
 
     if func is None:
@@ -106,17 +117,6 @@ def with_attrs(func: Callable | None = None, *, parse_args: ParseArgs | None = N
     else:
         return decorator(func)
 
-@attrs.define
-class A:
-    value: int
 
-@attrs.define
-class B:
-    ovalue: int
-
-@with_attrs
-def func(a: A, b: B):
-    return a.value * b.ovalue
-
-if __name__ == "__main__":
-    print(func())
+def script_argparse():
+    raise NotImplementedError

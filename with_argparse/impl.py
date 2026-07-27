@@ -6,6 +6,7 @@ import warnings
 
 from with_argparse.configure_argparse import WithArgparse
 from with_argparse.setup import config
+from with_argparse.main import with_attrs
 
 try:
     from pyrootutils import setup_root as setup_root_fn

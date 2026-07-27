@@ -18,7 +18,7 @@ class DataclassTest(unittest.TestCase):
             param: Literal['a', 'b']
             items: list[str]
 
-        @with_dataclass(args=Test)
+        @with_dataclass
         def func(args: Test):
             return args.param
 
@@ -33,7 +33,7 @@ class DataclassTest(unittest.TestCase):
         class B:
             number: int
 
-        @with_dataclass(A, B)
+        @with_dataclass
         def func(arg1: A, arg2: B):
             return len(arg1.param) + arg2.number
 
