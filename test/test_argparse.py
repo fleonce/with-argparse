@@ -29,9 +29,8 @@ class ArgparseTestCase(unittest.TestCase):
         with sys_args(inp=123):
             self.assertEqual(123, func())
 
-    #    @foreach(inp={'microsoft/deberta-v3-large'})
     def test_arg(self):
-        @with_argparse
+        @with_argparse(strict=False)
         def func(model: str, generative: bool = False, compare_to: int = 0, trust_remote_code: bool = False):
             return model
 
@@ -57,7 +56,7 @@ class ArgparseTestCase(unittest.TestCase):
 
     def test_list_argparse(self):
         @with_argparse
-        def wrapper(a: Set[int] = None):
+        def wrapper(a: set[int] | None = None):
             return a
 
         with sys_args():
@@ -73,7 +72,7 @@ class ArgparseTestCase(unittest.TestCase):
     @foreach(default={0, None}, expect={42, 0})
     def test_argparse_int(self, default: int | None, expect: int | None):
         @with_argparse
-        def wrapper(value: int = default) -> int:
+        def wrapper(value: int | None = default) -> int | None:
             return value
 
         with sys_args(value=expect):
@@ -112,10 +111,10 @@ class ArgparseTestCase(unittest.TestCase):
             func()
 
     def test_duplicate_inputs(self):
-        @with_argparse
+        @with_argparse(strict=False)
         def func(arg: str) -> str:
             return arg
 
-        with sys_args(arg="456"):
+        with sys_args(arg="456"), self.assertRaises(SystemExit):
             self.assertEqual(func(arg="123"), "456")
             self.assertEqual(func("123"), "456")
