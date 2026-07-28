@@ -2,7 +2,7 @@
 
 `with-argparse` is a very simple and tiny package using `argparse.ArgumentParser` objects
 to derive a CLI that is automatically applied to a function using type annotations.
-*Currently supports Python 3.12-3.14*.
+*Currently supports Python 3.10-3.14*.
 
 ### Supported features:
 
