@@ -1,11 +1,10 @@
-from with_argparse import with_attrs
 import dataclasses
 import unittest
 
 import attrs
 
 from tools import sys_args
-from with_argparse import with_dataclass, partial_argparse, no_argparse
+from with_argparse import no_argparse, partial_argparse, with_attrs, with_dataclass
 
 
 class ArgParseTestCase(unittest.TestCase):

@@ -20,4 +20,5 @@ def foreach(**setup: list[Any] | set[Any]):
                     func(self, **combination_kwargs, **kwargs)
 
         return wrapper
+
     return inner

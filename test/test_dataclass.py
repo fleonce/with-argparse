@@ -6,16 +6,14 @@ from typing import Literal
 from tools import sys_args
 from with_argparse import with_dataclass
 
-logging.basicConfig(
-    level="DEBUG"
-)
+logging.basicConfig(level="DEBUG")
 
 
 class DataclassTest(unittest.TestCase):
     def test_dataclass(self):
         @dataclass
         class Test:
-            param: Literal['a', 'b']
+            param: Literal["a", "b"]
             items: list[str]
 
         @with_dataclass
@@ -28,7 +26,8 @@ class DataclassTest(unittest.TestCase):
     def test_multi_dataclass(self):
         @dataclass
         class A:
-            param: Literal['a', 'b']
+            param: Literal["a", "b"]
+
         @dataclass
         class B:
             number: int

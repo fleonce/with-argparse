@@ -1,8 +1,8 @@
 # with-argparse
 
 `with-argparse` is a very simple and tiny package using `argparse.ArgumentParser` objects
-to derive a CLI that is automatically applied to a function using type annotations. 
-*Currently supports Python 3.10-11*.
+to derive a CLI that is automatically applied to a function using type annotations.
+*Currently supports Python 3.12-3.14*.
 
 ### Supported features:
 
@@ -35,7 +35,7 @@ def custom_parse_fn(inp: str) -> int:
     return 42 if inp == "yeah" else -1
 
 @with_argparse(
-    ignore_keys={"ignored_value"}, 
+    ignore_keys={"ignored_value"},
     complex_input=custom_parse_fn
 )
 def cli(
@@ -61,7 +61,7 @@ usage: --theory_of_everything THEORY_OF_EVERYTHING
 Becomes increasingly useful when the target type `T` does not have a default constructor with a single `str` argument
 or more complex logic is required to parse the desired type from a string input.
 
-As it is not type correct to use functions as type annotations (it would work extracting those functions from there, 
+As it is not type correct to use functions as type annotations (it would work extracting those functions from there,
 however type checkers such as mypy will complain when doing so), one can specify custom parse functions
 directly in the `@with_argparse()` decorator via a keyword argument named as the target parameter.
 
@@ -93,5 +93,5 @@ For Boolean values, if the default specified is `True`, the CLI argument name is
 such that the user must specify to *disable* the given argument. In any other case (`None, False`), the user must
 specify `--arg_name` to set the Boolean argument to `True`,
 
-The renaming of a parameter can be disabled by specifying its name in the set `ignore_mapping`, again in the 
+The renaming of a parameter can be disabled by specifying its name in the set `ignore_mapping`, again in the
 `@with_argparse` decorator to the function.

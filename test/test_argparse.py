@@ -1,13 +1,11 @@
 import logging
 import unittest
-from typing import Optional, Set
+from typing import Optional
 
-from tools import sys_args, foreach
+from tools import foreach, sys_args
 from with_argparse import with_argparse
 
-logging.basicConfig(
-    level="DEBUG"
-)
+logging.basicConfig(level="DEBUG")
 
 
 class ArgparseTestCase(unittest.TestCase):
@@ -31,7 +29,12 @@ class ArgparseTestCase(unittest.TestCase):
 
     def test_arg(self):
         @with_argparse(strict=False)
-        def func(model: str, generative: bool = False, compare_to: int = 0, trust_remote_code: bool = False):
+        def func(
+            model: str,
+            generative: bool = False,
+            compare_to: int = 0,
+            trust_remote_code: bool = False,
+        ):
             return model
 
         model = "microsoft"
@@ -78,7 +81,7 @@ class ArgparseTestCase(unittest.TestCase):
         with sys_args(value=expect):
             self.assertEqual(wrapper(), expect)
 
-    @foreach(expect={('a', 'b')})
+    @foreach(expect={("a", "b")})
     def test_argparse_set_type(self, expect):
         outer_set_t = set
         inner_set_t = type(next(iter(expect)))
@@ -90,7 +93,7 @@ class ArgparseTestCase(unittest.TestCase):
         with sys_args(value=expect):
             self.assertEqual(wrapper(), outer_set_t(expect))
 
-    @foreach(expect={('a', 'b')})
+    @foreach(expect={("a", "b")})
     def test_argparse_list_type(self, expect):
         outer_set_t = list
         inner_set_t = type(next(iter(expect)))

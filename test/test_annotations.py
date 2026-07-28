@@ -11,7 +11,7 @@ class IgnoreTest(unittest.TestCase):
 
         with self.assertRaisesRegex(
             TypeError,
-            "Function .+ must be strongly typed, however has no no type annotation for field '[a-z]+'"
+            "Function .+ must be strongly typed, however has no no type annotation for field '[a-z]+'",
         ):
             wrapper()
 
@@ -22,6 +22,6 @@ class IgnoreTest(unittest.TestCase):
 
         with self.assertRaisesRegex(
             TypeError,
-            "Function <function .+ must be strongly typed, however has no no type annotation for field '[a-z]+'"
+            "Function <function .+ must be strongly typed, however has no no type annotation for field '[a-z]+'",
         ):
             func()

@@ -9,7 +9,7 @@ dependencies = [
     "attrs>=26.1.0",
     "typing-extensions>=4.15.0",
 ]
-requires-python = ">= 3.12"
+requires-python = ">= 3.10"
 
 authors = [
     { name = "Moritz Hennen", email = "mail@fleance.de" }
@@ -44,4 +44,5 @@ package = true
 dev = [
     "flake8>=7.3.0",
     "mypy>=2.3.0",
+    "pre-commit>=4.6.1",
 ]

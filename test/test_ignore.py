@@ -1,13 +1,10 @@
-import argparse
 import logging
 import unittest
 
 from tools import sys_args
 from with_argparse import with_argparse
 
-logging.basicConfig(
-    level="DEBUG"
-)
+logging.basicConfig(level="DEBUG")
 
 
 class IgnoreTest(unittest.TestCase):
