@@ -1177,7 +1177,7 @@ wheels = [
 
 [[package]]
 name = "with-argparse"
-version = "1.0.6"
+version = "1.0.7rc1"
 source = { editable = "." }
 dependencies = [
     { name = "attrs" },
@@ -1185,9 +1185,6 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
-build = [
-    { name = "twine" },
-]
 dev = [
     { name = "build" },
     { name = "flake8" },
@@ -1203,7 +1200,6 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-build = [{ name = "twine", specifier = ">=7.0.0" }]
 dev = [
     { name = "build", specifier = ">=1.6.1" },
     { name = "flake8", specifier = ">=7.3.0" },
