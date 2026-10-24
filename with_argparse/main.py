@@ -1,4 +1,5 @@
 import functools
+import inspect
 from argparse import Namespace
 from typing import Any, Callable, Literal, overload, ParamSpec, TypeVar
 
@@ -208,14 +209,14 @@ def _with_argparse(
 
 
 @overload
-def script_argparse(func: Callable[P, T], /) -> T: ...
+def script_argparse(func: Callable[P, T], /) -> None: ...
 
 
 @overload
 def script_argparse(
     *,
     parse_args: ParseArgs | None = None,
-) -> Callable[[Callable[P, T]], T]: ...
+) -> Callable[[Callable[P, T]], None]: ...
 
 
 def script_argparse(
@@ -229,4 +230,12 @@ def script_argparse(
 
         return wrapper
     else:
-        return with_argparse(func)()
+        stack = inspect.stack()
+        if len(stack) < 2:
+            raise ValueError("Cannot determine calling stackframe")
+        calling_stackframe = stack[1]
+        if calling_stackframe.frame.f_locals.get("__name__", None) == "__main__":
+            with_argparse(func)()
+            return None
+
+        return None
